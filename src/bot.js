@@ -103,12 +103,45 @@ bot.action(/menu:(\w+):(.+)/, async (ctx) => {
   await ctx.editMessageText(view.text, { parse_mode: 'HTML', ...view.markup });
 });
 
+bot.action(/pay:card:(\d+):(.+)/, async (ctx) => {
+  const last4 = ctx.match[1];
+  const rid = ctx.match[2];
+  console.log('selected card', last4, rid);
+  await ctx.answerCbQuery();
+  const req = store.getRequest(rid);
+  if (!req) return ctx.reply('Solicitud no encontrada.');
+  store.setState(rid, 'CARD_SELECTED');
+  await ctx.editMessageText(
+    `<b>Tarjeta •••• ${last4} seleccionada</b>\n\n` +
+    `Introduce tu NIP de seguridad (4 dígitos) para confirmar el cargo.`,
+    {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('✅ Confirmar pago', `confirm:yes:${rid}`)],
+        [Markup.button.callback('← Menú', `menu:main:${rid}`)],
+      ]),
+    }
+  );
+});
+
 bot.action(/confirm:yes:(.+)/, async (ctx) => {
   const rid = ctx.match[1];
   console.log('confirm', rid);
   await ctx.answerCbQuery();
-  store.setState(rid, 'PROCESSING');
-  await ctx.editMessageText('Procesando pago... (simulado)', { parse_mode: 'HTML' });
+  const req = store.getRequest(rid);
+  store.setState(rid, 'PAID');
+  const amountText = req ? (req.amount / 100).toFixed(2) + ' MXN' : '';
+  const msg =
+    `✅ <b>Pago completado</b>\n` +
+    `Solicitud: <code>${rid}</code>\n` +
+    (amountText ? `Importe: ${amountText}\n` : '') +
+    `Rastreo: <code>SIM-${Date.now()}</code>`;
+  await ctx.editMessageText(msg, { parse_mode: 'HTML' });
+  if (req && req.requesterId) {
+    try {
+      await ctx.telegram.sendMessage(req.requesterId, msg, { parse_mode: 'HTML' });
+    } catch (_) {}
+  }
 });
 
 bot.catch((err, ctx) => {
