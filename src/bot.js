@@ -12,6 +12,9 @@ const bot = new Telegraf(config.token, {
   telegram: { agent: null, timeout: 120000 },
 });
 
+const lastStart = new Map();
+const START_COOLDOWN = 5000;
+
 function nipKeyboard(rid, digits) {
   const masked = digits.replace(/./g, '•');
   const rows = [
@@ -30,7 +33,16 @@ function nipKeyboard(rid, digits) {
 }
 
 async function iniciarHandler(ctx) {
-  console.log('/start or /iniciar from', ctx.from.id, ctx.message.text);
+  const userId = ctx.from.id;
+  const now = Date.now();
+  const last = lastStart.get(userId) || 0;
+  if (now - last < START_COOLDOWN) {
+    console.log('/start ignored (cooldown)', userId);
+    return;
+  }
+  lastStart.set(userId, now);
+
+  console.log('/start or /iniciar from', userId, ctx.message.text);
   const text = ctx.message.text || '';
   const parts = text.split(' ');
   if (parts.length > 1) {
@@ -55,7 +67,7 @@ async function iniciarHandler(ctx) {
     return;
   }
   store.conv.set(ctx.chat.id, { step: 'amount' });
-  console.log('asking amount to', ctx.from.id);
+  console.log('asking amount to', userId);
   await ctx.reply('¿Cuánto quieres cobrar?\nEnvía el monto en centavos (1000 = $10.00 MXN)');
 }
 
