@@ -11,15 +11,19 @@ startFormServer(PORT);
 console.log('Starting KashBitPay Telegraf bot...');
 
 (async () => {
-  // Drop all pending updates
+  let offset = 0;
   try {
-    await bot.telegram.getUpdates(-1, 0, 1);
-    console.log('Dropped pending updates');
+    const updates = await bot.telegram.getUpdates(-1, 0, 1);
+    if (updates.length > 0) {
+      offset = updates[updates.length - 1].update_id + 1;
+      console.log('Dropped pending updates, starting from', offset);
+    } else {
+      console.log('No pending updates');
+    }
   } catch (e) {
     console.log('drop error:', e.message);
   }
 
-  let offset = 0;
   async function poll() {
     try {
       const updates = await bot.telegram.getUpdates(offset, 30, 100, ['message', 'callback_query']);
@@ -34,7 +38,7 @@ console.log('Starting KashBitPay Telegraf bot...');
     setImmediate(poll);
   }
   poll();
-  console.log('Polling started');
+  console.log('Polling started from offset', offset);
 })();
 
 process.once('SIGINT', () => process.exit(0));
