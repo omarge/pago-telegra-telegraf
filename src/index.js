@@ -10,16 +10,25 @@ startFormServer(PORT);
 
 console.log('Starting KashBitPay Telegraf bot...');
 let launched = false;
-bot.launch({
-  dropPendingUpdates: true,
-  allowedUpdates: ['message', 'callback_query'],
-}).then(() => {
-  launched = true;
-  console.log('KashBitPay Telegraf bot started (polling)');
-}).catch((err) => {
-  console.error('Launch failed:', err);
-  process.exit(1);
-});
+
+(async () => {
+  try {
+    await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+    console.log('Webhook deleted');
+  } catch (e) {
+    console.log('deleteWebhook:', e.message);
+  }
+  bot.launch({
+    dropPendingUpdates: true,
+    allowedUpdates: ['message', 'callback_query'],
+  }).then(() => {
+    launched = true;
+    console.log('KashBitPay Telegraf bot started (polling)');
+  }).catch((err) => {
+    console.error('Launch failed:', err);
+    process.exit(1);
+  });
+})();
 
 function shutdown(sig) {
   console.log('Stopping', sig);
