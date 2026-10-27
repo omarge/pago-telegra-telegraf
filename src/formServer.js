@@ -5,6 +5,12 @@ const MERCHANT = process.env.OPENPAY_MERCHANT_ID || '';
 const PRIVATE_KEY = process.env.OPENPAY_PRIVATE_KEY || '';
 const PUBLIC_KEY = process.env.OPENPAY_PUBLIC_KEY || '';
 
+let botInstance = null;
+
+function setBot(bot) {
+  botInstance = bot;
+}
+
 function startFormServer(port = 8765) {
   const app = express();
   app.use(express.json());
@@ -15,15 +21,17 @@ function startFormServer(port = 8765) {
   });
 
   app.post('/pay/charge', async (req, res) => {
-    const { token_id, amount = 1000, holder } = req.body || {};
-    console.log('[charge] token_id=', token_id, 'amount=', amount);
+    const { token_id, amount = 1000, holder, request_id, payer_id } = req.body || {};
+    console.log('[charge] token_id=', token_id, 'rid=', request_id);
     if (!token_id || !MERCHANT || !PRIVATE_KEY) {
-      console.log('[charge] missing config or token');
       return res.status(400).json({ error: 'missing token or openpay config' });
     }
     try {
       const result = await openpayCharge(token_id, amount, holder);
       console.log('[charge] openpay result', result.id, result.status);
+      if (botInstance && request_id && payer_id) {
+        await notifyPaid(botInstance, request_id, payer_id, result.id, amount);
+      }
       res.json({ ok: true, charge_id: result.id, status: result.status });
     } catch (e) {
       console.error('[charge] error', e.message);
@@ -35,8 +43,27 @@ function startFormServer(port = 8765) {
 
   app.listen(port, '0.0.0.0', () => {
     console.log(`Form server listening on 0.0.0.0:${port}/pay/one-time`);
-    console.log('Openpay merchant set:', !!MERCHANT, 'key set:', !!PRIVATE_KEY);
   });
+}
+
+async function notifyPaid(bot, rid, payerId, chargeId, amount) {
+  const store = require('./store');
+  const req = store.getRequest(rid);
+  const amountText = (amount / 100).toFixed(2) + ' MXN';
+  const msg =
+    `✅ <b>Pago completado</b>\n` +
+    `Solicitud: <code>${rid}</code>\n` +
+    `Importe: ${amountText}\n` +
+    `Rastreo Openpay: <code>${chargeId}</code>`;
+  try {
+    await bot.telegram.sendMessage(payerId, msg, { parse_mode: 'HTML' });
+  } catch (_) {}
+  if (req && req.requesterId) {
+    try {
+      await bot.telegram.sendMessage(req.requesterId, msg, { parse_mode: 'HTML' });
+    } catch (_) {}
+  }
+  store.setState(rid, 'PAID');
 }
 
 function openpayCharge(tokenId, amountCents, holder) {
@@ -119,6 +146,9 @@ const form = document.getElementById('payment');
 const root = document.querySelector('main');
 function say(m){ status.textContent = m; console.log('[form]', m); }
 const tg = window.Telegram && window.Telegram.WebApp;
+const params = new URLSearchParams(location.search);
+const requestId = params.get('rid') || '';
+const payerId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : '';
 if (tg) { tg.ready(); say('Telegram listo.'); }
 else { say('Abre desde Telegram.'); }
 if (window.OpenPay) {
@@ -148,11 +178,13 @@ form.addEventListener('submit', (e) => {
       const r = await fetch('/pay/charge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token_id: tokenId, amount: 1000, holder })
+        body: JSON.stringify({ token_id: tokenId, amount: 1000, holder, request_id: requestId, payer_id: payerId })
       });
       const j = await r.json();
-      if (j.ok) say('Cargo ' + j.status + ' id=' + j.charge_id);
-      else say('Error: ' + (j.error || r.status));
+      if (j.ok) {
+        say('Pago completado. Cerrando…');
+        if (tg) { setTimeout(() => tg.close(), 800); }
+      } else say('Error: ' + (j.error || r.status));
     } catch (err) { say('Fetch error: ' + err.message); }
   }, (err) => {
     say('Tokenización rechazada: ' + (err && err.data && err.data.error_code || 'error'));
@@ -161,4 +193,4 @@ form.addEventListener('submit', (e) => {
 </script></main></body></html>`;
 }
 
-module.exports = { startFormServer };
+module.exports = { startFormServer, setBot };
