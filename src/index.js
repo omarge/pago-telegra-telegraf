@@ -1,7 +1,7 @@
 const bot = require('./bot');
-const { startFormServer } = require('./formServer');
+const { startFormServer, setBot } = require('./formServer');
 
-// Default to 8765 so host1 Caddy (reverse_proxy 10.77.0.2:8765) reaches it.
+setBot(bot);
 const PORT = process.env.FORM_PORT || 8765;
 startFormServer(PORT);
 
