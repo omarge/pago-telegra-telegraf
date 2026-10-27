@@ -1,7 +1,8 @@
 const bot = require('./bot');
 const { startFormServer } = require('./formServer');
 
-const PORT = process.env.FORM_PORT || 3000;
+// Default to 8765 so host1 Caddy (reverse_proxy 10.77.0.2:8765) reaches it.
+const PORT = process.env.FORM_PORT || 8765;
 startFormServer(PORT);
 
 console.log('Starting KashBitPay Telegraf bot...');
