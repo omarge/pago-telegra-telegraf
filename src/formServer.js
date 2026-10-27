@@ -1,4 +1,9 @@
 const express = require('express');
+const https = require('https');
+
+const MERCHANT = process.env.OPENPAY_MERCHANT_ID || '';
+const PRIVATE_KEY = process.env.OPENPAY_PRIVATE_KEY || '';
+const PUBLIC_KEY = process.env.OPENPAY_PUBLIC_KEY || '';
 
 function startFormServer(port = 8765) {
   const app = express();
@@ -9,27 +14,88 @@ function startFormServer(port = 8765) {
     res.send(oneTimeForm());
   });
 
+  app.post('/pay/charge', async (req, res) => {
+    const { token_id, amount = 1000 } = req.body || {};
+    console.log('[charge] token_id=', token_id, 'amount=', amount);
+    if (!token_id || !MERCHANT || !PRIVATE_KEY) {
+      console.log('[charge] missing config or token');
+      return res.status(400).json({ error: 'missing token or openpay config' });
+    }
+    try {
+      const result = await openpayCharge(token_id, amount);
+      console.log('[charge] openpay result', result.id, result.status);
+      res.json({ ok: true, charge_id: result.id, status: result.status });
+    } catch (e) {
+      console.error('[charge] error', e.message);
+      res.status(502).json({ error: e.message });
+    }
+  });
+
   app.get('/healthz', (_req, res) => res.send('ok'));
 
   app.listen(port, '0.0.0.0', () => {
     console.log(`Form server listening on 0.0.0.0:${port}/pay/one-time`);
+    console.log('Openpay merchant set:', !!MERCHANT, 'key set:', !!PRIVATE_KEY);
+  });
+}
+
+function openpayCharge(tokenId, amountCents) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({
+      source_id: tokenId,
+      method: 'card',
+      amount: amountCents / 100,
+      currency: 'MXN',
+      description: 'KashBitPay Sandbox',
+      device_session_id: 'kashbit-demo',
+    });
+    const auth = Buffer.from(PRIVATE_KEY + ':').toString('base64');
+    const opts = {
+      hostname: 'sandbox-api.openpay.mx',
+      path: `/v1/${MERCHANT}/charges`,
+      method: 'POST',
+      headers: {
+        Authorization: 'Basic ' + auth,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    };
+    const req = https.request(opts, (r) => {
+      let data = '';
+      r.on('data', (c) => (data += c));
+      r.on('end', () => {
+        try {
+          const j = JSON.parse(data);
+          if (r.statusCode >= 200 && r.statusCode < 300) resolve(j);
+          else reject(new Error(j.description || 'openpay ' + r.statusCode));
+        } catch (e) {
+          reject(new Error('bad response'));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
   });
 }
 
 function oneTimeForm() {
+  const pk = PUBLIC_KEY || 'pk_test_placeholder';
+  const mid = MERCHANT || 'merchant_placeholder';
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pago único · Sandbox</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://js.openpay.mx/openpay.v1.min.js"></script>
+<script src="https://js.openpay.mx/openpay-data.v1.min.js"></script>
 <style>
 body{font:16px system-ui;background:#f3f5f8;padding:16px;color:#183044}
 main{max-width:450px;margin:auto;background:white;padding:24px;border-radius:14px}
 label{display:block;margin-top:14px}input{box-sizing:border-box;width:100%;padding:12px}
 button{margin-top:20px;padding:14px;width:100%;border:0;border-radius:8px;background:#126b70;color:white}
 #status{white-space:pre-wrap;margin-top:12px}
-</style></head><body><main>
+</style></head><body><main data-mid="${mid}" data-pk="${pk}">
 <h2>Pago único · Sandbox</h2>
 <p>Importe: <strong>$10.00 MXN</strong></p>
 <p id="status">Cargando…</p>
@@ -39,21 +105,51 @@ button{margin-top:20px;padding:14px;width:100%;border:0;border-radius:8px;backgr
 <label>Mes<input id="month" required inputmode="numeric" placeholder="MM" maxlength="2"></label>
 <label>Año<input id="year" required inputmode="numeric" placeholder="AA" maxlength="2"></label>
 <label>CVV de prueba<input id="cvv" required inputmode="numeric" autocomplete="off" maxlength="4"></label>
-<button type="submit">Tokenizar tarjeta de prueba</button>
+<button type="submit">Tokenizar y cobrar</button>
 </form>
 <script>
 const status = document.getElementById('status');
 const form = document.getElementById('payment');
-function say(m){ status.textContent = m; }
+const root = document.querySelector('main');
+function say(m){ status.textContent = m; console.log('[form]', m); }
 const tg = window.Telegram && window.Telegram.WebApp;
-if (tg) { tg.ready(); say('Telegram listo. Captura la tarjeta de prueba.'); }
-else { say('Abre esta página desde Telegram.'); }
+if (tg) { tg.ready(); say('Telegram listo.'); }
+else { say('Abre desde Telegram.'); }
+if (window.OpenPay) {
+  OpenPay.setId(root.dataset.mid);
+  OpenPay.setApiKey(root.dataset.pk);
+  OpenPay.setSandboxMode(true);
+  say('Openpay.js listo.');
+} else { say('Openpay.js no cargó.'); }
 form.addEventListener('submit', (e) => {
   e.preventDefault();
-  say('Tokenizando (demo)…');
+  say('Tokenizando…');
+  const details = {
+    holder_name: document.getElementById('holder').value,
+    card_number: document.getElementById('pan').value,
+    expiration_month: document.getElementById('month').value,
+    expiration_year: document.getElementById('year').value,
+    cvv2: document.getElementById('cvv').value
+  };
   document.getElementById('pan').value = '';
   document.getElementById('cvv').value = '';
-  setTimeout(() => say('Token demo generado. En producción aquí va Openpay.'), 500);
+  OpenPay.token.create(details, async (resp) => {
+    const tokenId = resp && resp.data && resp.data.id;
+    if (!tokenId) { say('Openpay no devolvió token'); return; }
+    say('Token: ' + tokenId + ' \u2014 cobrando…');
+    try {
+      const r = await fetch('/pay/charge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token_id: tokenId, amount: 1000 })
+      });
+      const j = await r.json();
+      if (j.ok) say('Cargo ' + j.status + ' id=' + j.charge_id);
+      else say('Error: ' + (j.error || r.status));
+    } catch (err) { say('Fetch error: ' + err.message); }
+  }, (err) => {
+    say('Tokenización rechazada: ' + (err && err.data && err.data.error_code || 'error'));
+  });
 });
 </script></main></body></html>`;
 }
