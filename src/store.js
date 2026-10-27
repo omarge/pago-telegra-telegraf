@@ -4,6 +4,8 @@ const invites = new Map();
 const requests = new Map();
 const conv = new Map();
 const cards = new Map();
+const pins = new Map(); // userId -> pin
+const pinEntry = new Map(); // rid -> current digits
 
 function newId() {
   return 'KPR-' + crypto.randomBytes(16).toString('hex').toUpperCase();
@@ -57,6 +59,22 @@ function getCards(userId) {
   return cards.get(String(userId)) || [];
 }
 
+function setPin(userId, pin) {
+  pins.set(String(userId), pin);
+}
+
+function getPin(userId) {
+  return pins.get(String(userId)) || '1234';
+}
+
+function setPinEntry(rid, digits) {
+  pinEntry.set(rid, digits);
+}
+
+function getPinEntry(rid) {
+  return pinEntry.get(rid) || '';
+}
+
 module.exports = {
   conv,
   createInvite,
@@ -66,4 +84,8 @@ module.exports = {
   setState,
   addCard,
   getCards,
+  setPin,
+  getPin,
+  setPinEntry,
+  getPinEntry,
 };
