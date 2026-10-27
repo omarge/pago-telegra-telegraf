@@ -8,35 +8,25 @@ setBot(bot);
 const PORT = process.env.FORM_PORT || 8765;
 startFormServer(PORT);
 
-console.log('Starting KashBitPay Telegraf bot...');
-let launched = false;
+console.log('Starting KashBitPay Telegraf bot (manual polling)...');
 
-(async () => {
+let offset = 0;
+async function poll() {
   try {
-    await bot.telegram.deleteWebhook({ drop_pending_updates: true });
-    console.log('Webhook deleted');
+    const updates = await bot.telegram.getUpdates(offset, 30, 100, ['message', 'callback_query']);
+    for (const u of updates) {
+      offset = u.update_id + 1;
+      bot.handleUpdate(u);
+    }
   } catch (e) {
-    console.log('deleteWebhook:', e.message);
+    console.error('poll error:', e.message);
+    await new Promise(r => setTimeout(r, 3000));
   }
-  bot.launch({
-    dropPendingUpdates: true,
-    allowedUpdates: ['message', 'callback_query'],
-  }).then(() => {
-    launched = true;
-    console.log('KashBitPay Telegraf bot started (polling)');
-  }).catch((err) => {
-    console.error('Launch failed:', err);
-    process.exit(1);
-  });
-})();
-
-function shutdown(sig) {
-  console.log('Stopping', sig);
-  if (launched) {
-    bot.stop(sig);
-  } else {
-    process.exit(0);
-  }
+  setImmediate(poll);
 }
-process.once('SIGINT', () => shutdown('SIGINT'));
-process.once('SIGTERM', () => shutdown('SIGTERM'));
+
+poll();
+console.log('Polling started');
+
+process.once('SIGINT', () => process.exit(0));
+process.once('SIGTERM', () => process.exit(0));
