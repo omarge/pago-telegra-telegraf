@@ -26,6 +26,11 @@ function startFormServer(port = 8765) {
     res.send(enrollForm());
   });
 
+  app.get('/nip/change', (req, res) => {
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(nipChangeForm());
+  });
+
   app.post('/pay/charge', async (req, res) => {
     const { token_id, amount = 1000, holder, request_id, payer_id } = req.body || {};
     console.log('[charge] token_id=', token_id, 'rid=', request_id);
@@ -53,6 +58,18 @@ function startFormServer(port = 8765) {
     store.addCard(user_id, card);
     console.log('[enroll] saved', last4, 'for', user_id);
     res.json({ ok: true, saved: true, last4: card.last4 });
+  });
+
+  app.post('/nip/change', async (req, res) => {
+    const { user_id, old_pin, new_pin } = req.body || {};
+    console.log('[nip] change for', user_id);
+    if (!user_id || !old_pin || !new_pin) return res.status(400).json({ error: 'missing fields' });
+    const current = store.getPin(user_id);
+    if (old_pin !== current) return res.status(403).json({ error: 'NIP actual incorrecto' });
+    if (!/^\d{4}$/.test(new_pin)) return res.status(400).json({ error: 'NIP debe ser 4 dígitos' });
+    store.setPin(user_id, new_pin);
+    console.log('[nip] updated for', user_id);
+    res.json({ ok: true });
   });
 
   app.get('/healthz', (_req, res) => res.send('ok'));
@@ -281,6 +298,56 @@ form.addEventListener('submit', (e) => {
   }, (err) => {
     say('Tokenización rechazada');
   });
+});
+</script></main></body></html>`;
+}
+
+function nipChangeForm() {
+  return `<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cambiar NIP</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+body{font:16px system-ui;background:#f3f5f8;padding:16px;color:#183044}
+main{max-width:450px;margin:auto;background:white;padding:24px;border-radius:14px}
+label{display:block;margin-top:14px}input{box-sizing:border-box;width:100%;padding:12px}
+button{margin-top:20px;padding:14px;width:100%;border:0;border-radius:8px;background:#126b70;color:white}
+#status{white-space:pre-wrap;margin-top:12px}
+</style></head><body><main>
+<h2>Cambiar NIP</h2>
+<p id="status">Cargando…</p>
+<form id="nipform" autocomplete="off">
+<label>NIP actual<input id="old" type="password" inputmode="numeric" maxlength="4" required></label>
+<label>NIP nuevo<input id="n1" type="password" inputmode="numeric" maxlength="4" required></label>
+<label>Confirmar NIP nuevo<input id="n2" type="password" inputmode="numeric" maxlength="4" required></label>
+<button type="submit">Cambiar NIP</button>
+</form>
+<script>
+const status = document.getElementById('status');
+const form = document.getElementById('nipform');
+function say(m){ status.textContent = m; }
+const tg = window.Telegram && window.Telegram.WebApp;
+const userId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? String(tg.initDataUnsafe.user.id) : '';
+if (tg) { tg.ready(); say('Telegram listo.'); }
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const oldP = document.getElementById('old').value;
+  const n1 = document.getElementById('n1').value;
+  const n2 = document.getElementById('n2').value;
+  if (n1 !== n2) { say('Los NIP nuevos no coinciden.'); return; }
+  if (!/^\d{4}$/.test(n1)) { say('El NIP debe ser 4 dígitos.'); return; }
+  say('Verificando…');
+  const r = await fetch('/nip/change', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, old_pin: oldP, new_pin: n1 })
+  });
+  const j = await r.json();
+  if (j.ok) {
+    say('NIP actualizado. Cerrando…');
+    if (tg) setTimeout(() => tg.close(), 800);
+  } else say('Error: ' + (j.error || r.status));
 });
 </script></main></body></html>`;
 }
