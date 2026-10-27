@@ -10,6 +10,23 @@ if (!config.token) {
 
 const bot = new Telegraf(config.token);
 
+function nipKeyboard(rid, digits) {
+  const masked = digits.replace(/./g, '•');
+  const rows = [
+    [1, 2, 3],
+    [4, 5, 6],
+    [7, 8, 9],
+    ['C', 0, '←'],
+  ].map((row) =>
+    row.map((d) => Markup.button.callback(String(d), `nip:${d}:${rid}`))
+  );
+  rows.push([Markup.button.callback('← Menú', `menu:main:${rid}`)]);
+  return {
+    text: `<b>NIP de seguridad</b>\n${masked || '(vacío)'}\n\nIntroduce 4 dígitos.`,
+    markup: Markup.inlineKeyboard(rows),
+  };
+}
+
 bot.start(async (ctx) => {
   console.log('/start from', ctx.from.id, ctx.message.text);
   const text = ctx.message.text || '';
@@ -115,18 +132,53 @@ bot.action(/pay:card:(\d+):(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
   const req = store.getRequest(rid);
   if (!req) return ctx.reply('Solicitud no encontrada.');
-  store.setState(rid, 'CARD_SELECTED');
-  await ctx.editMessageText(
-    `<b>Tarjeta •••• ${last4} seleccionada</b>\n\n` +
-    `Introduce tu NIP de seguridad (4 dígitos) para confirmar el cargo.`,
-    {
-      parse_mode: 'HTML',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('✅ Confirmar pago', `confirm:yes:${rid}`)],
-        [Markup.button.callback('← Menú', `menu:main:${rid}`)],
-      ]),
+  store.setState(rid, 'NEED_NIP');
+  store.setPinEntry(rid, '');
+  const k = nipKeyboard(rid, '');
+  await ctx.editMessageText(k.text, { parse_mode: 'HTML', ...k.markup });
+});
+
+bot.action(/nip:(.+):(.+)/, async (ctx) => {
+  const digit = ctx.match[1];
+  const rid = ctx.match[2];
+  await ctx.answerCbQuery();
+  let current = store.getPinEntry(rid);
+  if (digit === 'C') current = '';
+  else if (digit === '←') current = current.slice(0, -1);
+  else if (current.length < 4) current += digit;
+  store.setPinEntry(rid, current);
+  if (current.length === 4) {
+    const expected = store.getPin(ctx.from.id);
+    if (current === expected) {
+      const req = store.getRequest(rid);
+      store.setState(rid, 'PAID');
+      const amountText = req ? (req.amount / 100).toFixed(2) + ' MXN' : '';
+      const msg =
+        `✅ <b>Pago completado</b>\n` +
+        `Solicitud: <code>${rid}</code>\n` +
+        (amountText ? `Importe: ${amountText}\n` : '') +
+        `Rastreo: <code>SIM-${Date.now()}</code>`;
+      await ctx.editMessageText(msg, { parse_mode: 'HTML' });
+      if (req && req.requesterId) {
+        try {
+          await ctx.telegram.sendMessage(req.requesterId, msg, { parse_mode: 'HTML' });
+        } catch (_) {}
+      }
+      return;
+    } else {
+      store.setPinEntry(rid, '');
+      const k = nipKeyboard(rid, '');
+      await ctx.editMessageText(
+        `<b>NIP incorrecto</b>\nIntenta de nuevo.\n\n` + k.text,
+        { parse_mode: 'HTML', ...k.markup }
+      );
+      return;
     }
-  );
+  }
+  const k = nipKeyboard(rid, current);
+  try {
+    await ctx.editMessageText(k.text, { parse_mode: 'HTML', ...k.markup });
+  } catch (_) {}
 });
 
 bot.action(/confirm:yes:(.+)/, async (ctx) => {
