@@ -7,7 +7,10 @@ startFormServer(PORT);
 
 console.log('Starting KashBitPay Telegraf bot...');
 let launched = false;
-bot.launch().then(() => {
+bot.launch({
+  dropPendingUpdates: true,
+  allowedUpdates: ['message', 'callback_query'],
+}).then(() => {
   launched = true;
   console.log('KashBitPay Telegraf bot started (polling)');
 }).catch((err) => {
