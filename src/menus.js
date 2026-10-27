@@ -38,6 +38,20 @@ function newCardMenu(rid) {
   };
 }
 
+function saveCardMenu(rid) {
+  const enroll = `${formBase}/cards/enroll?rid=${encodeURIComponent(rid)}`;
+  return {
+    text:
+      `<b>Guardar tarjeta</b>\n\n` +
+      `Se abrirá un formulario para registrar la tarjeta en Openpay.\n` +
+      `Después podrás usarla en pagos futuros.`,
+    markup: Markup.inlineKeyboard([
+      [Markup.button.webApp('Abrir formulario de enrolamiento', enroll)],
+      [Markup.button.callback('← Menú', `menu:main:${rid}`)],
+    ]),
+  };
+}
+
 function savedCardsMenu(rid) {
   const cards = [
     { last4: '4242', brand: 'Visa' },
@@ -71,4 +85,4 @@ function statementMenu(rid) {
   };
 }
 
-module.exports = { mainMenu, newCardMenu, savedCardsMenu, configMenu, statementMenu };
+module.exports = { mainMenu, newCardMenu, saveCardMenu, savedCardsMenu, configMenu, statementMenu };
