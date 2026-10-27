@@ -61,14 +61,33 @@ async function iniciarHandler(ctx) {
 
 bot.start(iniciarHandler);
 bot.command('iniciar', iniciarHandler);
+
 bot.command('guardar_tarjeta', (ctx) => {
-  ctx.reply('Usa el botón Guardar tarjeta dentro de una solicitud de pago.');
+  const formBase = (process.env.FORM_PUBLIC_URL || 'https://pagos.kashbit.bond').replace(/\/$/, '');
+  const url = `${formBase}/cards/enroll`;
+  ctx.reply('Abre el formulario para guardar una tarjeta:',
+    Markup.inlineKeyboard([[Markup.button.webApp('Abrir formulario de enrolamiento', url)]])
+  );
 });
+
 bot.command('estado_cuenta', (ctx) => {
-  ctx.reply('Estado de cuenta: próximamente');
+  const cards = store.getCards(ctx.from.id);
+  const text =
+    `<b>Estado de cuenta</b>\n` +
+    `Tarjetas guardadas: ${cards.length}\n` +
+    `Cobros: 0\n` +
+    `Pagos: 0`;
+  ctx.reply(text, { parse_mode: 'HTML' });
 });
+
 bot.command('configuracion', (ctx) => {
-  ctx.reply('Configuración: próximamente');
+  const text =
+    `<b>Configuración</b>\n\n` +
+    `• Nombre\n` +
+    `• Correo electrónico\n` +
+    `• NIP de seguridad (4 dígitos)\n\n` +
+    `El NIP solo se establece una vez.`;
+  ctx.reply(text, { parse_mode: 'HTML' });
 });
 
 bot.on('text', async (ctx) => {
