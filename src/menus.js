@@ -1,4 +1,5 @@
 const { Markup } = require('telegraf');
+const store = require('./store');
 
 const formBase = (process.env.FORM_PUBLIC_URL || 'https://pagos.kashbit.bond').replace(/\/$/, '');
 
@@ -52,13 +53,18 @@ function saveCardMenu(rid) {
   };
 }
 
-function savedCardsMenu(rid) {
-  const cards = [
-    { last4: '4242', brand: 'Visa' },
-    { last4: '4444', brand: 'Mastercard' },
-  ];
+function savedCardsMenu(rid, userId) {
+  const cards = store.getCards(userId);
+  if (!cards.length) {
+    return {
+      text: `<b>Tarjetas guardadas</b>\nNo tienes tarjetas guardadas aún.`,
+      markup: Markup.inlineKeyboard([
+        [Markup.button.callback('← Menú', `menu:main:${rid}`)],
+      ]),
+    };
+  }
   const buttons = cards.map((c) => [
-    Markup.button.callback(`Pagar con ${c.brand} •••• ${c.last4}`, `pay:card:${c.last4}:${rid}`),
+    Markup.button.callback(`Pagar con •••• ${c.last4}`, `pay:card:${c.last4}:${rid}`),
   ]);
   buttons.push([Markup.button.callback('← Menú', `menu:main:${rid}`)]);
   return {
