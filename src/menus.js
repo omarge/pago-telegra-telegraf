@@ -1,6 +1,5 @@
 const { Markup } = require('telegraf');
 
-// Caddy on host1 reverse-proxies pagos.kashbit.bond → 10.77.0.2:8765
 const formBase = (process.env.FORM_PUBLIC_URL || 'https://pagos.kashbit.bond').replace(/\/$/, '');
 
 function mainMenu(rid, amountText) {
@@ -22,7 +21,7 @@ function mainMenu(rid, amountText) {
 }
 
 function newCardMenu(rid) {
-  const oneTime = `${formBase}/pay/one-time`;
+  const oneTime = `${formBase}/pay/one-time?rid=${encodeURIComponent(rid)}`;
   return {
     text:
       `<b>Tarjeta nueva</b>\n\n` +
