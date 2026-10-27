@@ -1,4 +1,8 @@
 const bot = require('./bot');
+const { startFormServer } = require('./formServer');
+
+const PORT = process.env.FORM_PORT || 3000;
+startFormServer(PORT);
 
 console.log('Starting KashBitPay Telegraf bot...');
 bot.launch().then(() => {
