@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const invites = new Map();
 const requests = new Map();
 const conv = new Map();
-const cards = new Map(); // userId -> [{ last4, brand, tokenId }]
+const cards = new Map();
 
 function newId() {
   return 'KPR-' + crypto.randomBytes(16).toString('hex').toUpperCase();
@@ -46,14 +46,15 @@ function setState(id, state) {
 }
 
 function addCard(userId, card) {
-  const list = cards.get(userId) || [];
+  const key = String(userId);
+  const list = cards.get(key) || [];
   list.push(card);
-  cards.set(userId, list);
+  cards.set(key, list);
   return list;
 }
 
 function getCards(userId) {
-  return cards.get(userId) || [];
+  return cards.get(String(userId)) || [];
 }
 
 module.exports = {
