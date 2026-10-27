@@ -11,15 +11,18 @@ if (!config.token) {
 const bot = new Telegraf(config.token);
 
 bot.start(async (ctx) => {
+  console.log('/start from', ctx.from.id, ctx.message.text);
   const text = ctx.message.text || '';
   const parts = text.split(' ');
   if (parts.length > 1) {
     const token = parts[1];
     const inv = store.consumeInvite(token);
     if (!inv) {
+      console.log('invalid invite', token);
       return ctx.reply('Enlace inválido o expirado.');
     }
     const req = store.createRequest(inv.requesterId, ctx.from.id, inv.amount);
+    console.log('request created', req.id, 'amount', inv.amount);
     const amountText = (inv.amount / 100).toFixed(2) + ' MXN';
     const m = menus.mainMenu(req.id, amountText);
     await ctx.reply(m.text, { parse_mode: 'HTML', ...m.markup });
@@ -33,6 +36,7 @@ bot.start(async (ctx) => {
     return;
   }
   store.conv.set(ctx.chat.id, { step: 'amount' });
+  console.log('asking amount to', ctx.from.id);
   await ctx.reply(
     '¿Cuánto quieres cobrar?\nEnvía el monto en centavos (1000 = $10.00 MXN)'
   );
@@ -43,6 +47,7 @@ bot.on('text', async (ctx) => {
   if (text.startsWith('/')) return;
   const state = store.conv.get(ctx.chat.id);
   if (!state || state.step !== 'amount') return;
+  console.log('amount text', text, 'from', ctx.from.id);
   const amount = parseInt(text, 10);
   if (!amount || amount <= 0) {
     return ctx.reply('Monto inválido. Envía un número (1000 = $10.00).');
@@ -50,6 +55,7 @@ bot.on('text', async (ctx) => {
   const token = store.createInvite(ctx.from.id, amount);
   store.conv.delete(ctx.chat.id);
   const link = `https://t.me/${ctx.botInfo.username}?start=${token}`;
+  console.log('invite created', link);
   await ctx.reply(
     `Enlace generado.\nEnvíaselo al pagador:\n\n${link}\n\nEl pagador debe abrirlo y tocar Start.`,
     Markup.inlineKeyboard([[Markup.button.url('Abrir enlace para el pagador', link)]])
@@ -59,6 +65,7 @@ bot.on('text', async (ctx) => {
 bot.action(/menu:(\w+):(.+)/, async (ctx) => {
   const action = ctx.match[1];
   const rid = ctx.match[2];
+  console.log('menu action', action, rid);
   const req = store.getRequest(rid) || { amount: 0 };
   await ctx.answerCbQuery();
   let view;
@@ -98,6 +105,7 @@ bot.action(/menu:(\w+):(.+)/, async (ctx) => {
 
 bot.action(/confirm:yes:(.+)/, async (ctx) => {
   const rid = ctx.match[1];
+  console.log('confirm', rid);
   await ctx.answerCbQuery();
   store.setState(rid, 'PROCESSING');
   await ctx.editMessageText('Procesando pago... (simulado)', { parse_mode: 'HTML' });
