@@ -27,8 +27,8 @@ function nipKeyboard(rid, digits) {
   };
 }
 
-bot.start(async (ctx) => {
-  console.log('/start from', ctx.from.id, ctx.message.text);
+async function iniciarHandler(ctx) {
+  console.log('/start or /iniciar from', ctx.from.id, ctx.message.text);
   const text = ctx.message.text || '';
   const parts = text.split(' ');
   if (parts.length > 1) {
@@ -57,6 +57,18 @@ bot.start(async (ctx) => {
   await ctx.reply(
     '¿Cuánto quieres cobrar?\nEnvía el monto en centavos (1000 = $10.00 MXN)'
   );
+}
+
+bot.start(iniciarHandler);
+bot.command('iniciar', iniciarHandler);
+bot.command('guardar_tarjeta', (ctx) => {
+  ctx.reply('Usa el botón Guardar tarjeta dentro de una solicitud de pago.');
+});
+bot.command('estado_cuenta', (ctx) => {
+  ctx.reply('Estado de cuenta: próximamente');
+});
+bot.command('configuracion', (ctx) => {
+  ctx.reply('Configuración: próximamente');
 });
 
 bot.on('text', async (ctx) => {
