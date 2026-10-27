@@ -71,7 +71,7 @@ bot.action(/menu:(\w+):(.+)/, async (ctx) => {
   let view;
   if (action === 'new') view = menus.newCardMenu(rid);
   else if (action === 'save') view = menus.saveCardMenu(rid);
-  else if (action === 'saved') view = menus.savedCardsMenu(rid);
+  else if (action === 'saved') view = menus.savedCardsMenu(rid, ctx.from.id);
   else if (action === 'stmt') view = menus.statementMenu(rid);
   else if (action === 'cfg') view = menus.configMenu(rid);
   else if (action === 'reject') {
