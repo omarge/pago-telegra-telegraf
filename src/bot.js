@@ -97,8 +97,10 @@ bot.command('configuracion', (ctx) => {
 
 bot.on('text', async (ctx) => {
   const text = (ctx.message.text || '').trim();
+  console.log('[text] received:', JSON.stringify(text), 'chat', ctx.chat.id);
   if (text.startsWith('/')) return;
   const state = store.conv.get(ctx.chat.id);
+  console.log('[text] state:', state);
   if (!state || state.step !== 'amount') return;
   console.log('amount text', text, 'from', ctx.from.id);
   const amount = parseInt(text, 10);
