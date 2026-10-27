@@ -81,13 +81,18 @@ bot.command('estado_cuenta', (ctx) => {
 });
 
 bot.command('configuracion', (ctx) => {
-  const text =
+  const formBase = (process.env.FORM_PUBLIC_URL || 'https://pagos.kashbit.bond').replace(/\/$/, '');
+  const url = `${formBase}/nip/change`;
+  ctx.reply(
     `<b>Configuración</b>\n\n` +
     `• Nombre\n` +
     `• Correo electrónico\n` +
-    `• NIP de seguridad (4 dígitos)\n\n` +
-    `El NIP solo se establece una vez.`;
-  ctx.reply(text, { parse_mode: 'HTML' });
+    `• NIP de seguridad`,
+    {
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([[Markup.button.webApp('Cambiar NIP', url)]]),
+    }
+  );
 });
 
 bot.on('text', async (ctx) => {
