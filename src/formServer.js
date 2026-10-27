@@ -20,6 +20,11 @@ function startFormServer(port = 8765) {
     res.send(oneTimeForm());
   });
 
+  app.get('/cards/enroll', (req, res) => {
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(enrollForm());
+  });
+
   app.post('/pay/charge', async (req, res) => {
     const { token_id, amount = 1000, holder, request_id, payer_id } = req.body || {};
     console.log('[charge] token_id=', token_id, 'rid=', request_id);
@@ -37,6 +42,14 @@ function startFormServer(port = 8765) {
       console.error('[charge] error', e.message);
       res.status(502).json({ error: e.message });
     }
+  });
+
+  app.post('/cards/enroll', async (req, res) => {
+    const { token_id, holder } = req.body || {};
+    console.log('[enroll] token_id=', token_id);
+    if (!token_id) return res.status(400).json({ error: 'missing token' });
+    console.log('[enroll] card saved (demo) for', holder);
+    res.json({ ok: true, saved: true });
   });
 
   app.get('/healthz', (_req, res) => res.send('ok'));
@@ -188,6 +201,79 @@ form.addEventListener('submit', (e) => {
     } catch (err) { say('Fetch error: ' + err.message); }
   }, (err) => {
     say('Tokenización rechazada: ' + (err && err.data && err.data.error_code || 'error'));
+  });
+});
+</script></main></body></html>`;
+}
+
+function enrollForm() {
+  const pk = PUBLIC_KEY || 'pk_test_placeholder';
+  const mid = MERCHANT || 'merchant_placeholder';
+  return `<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Guardar tarjeta · Sandbox</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://js.openpay.mx/openpay.v1.min.js"></script>
+<style>
+body{font:16px system-ui;background:#f3f5f8;padding:16px;color:#183044}
+main{max-width:450px;margin:auto;background:white;padding:24px;border-radius:14px}
+label{display:block;margin-top:14px}input{box-sizing:border-box;width:100%;padding:12px}
+button{margin-top:20px;padding:14px;width:100%;border:0;border-radius:8px;background:#126b70;color:white}
+#status{white-space:pre-wrap;margin-top:12px}
+</style></head><body><main data-mid="${mid}" data-pk="${pk}">
+<h2>Guardar tarjeta</h2>
+<p id="status">Cargando…</p>
+<form id="enroll" autocomplete="off">
+<label>Titular<input id="holder" required maxlength="80"></label>
+<label>Número de tarjeta<input id="pan" required inputmode="numeric"></label>
+<label>Mes<input id="month" required inputmode="numeric" placeholder="MM" maxlength="2"></label>
+<label>Año<input id="year" required inputmode="numeric" placeholder="AA" maxlength="2"></label>
+<label>CVV<input id="cvv" required inputmode="numeric" maxlength="4"></label>
+<button type="submit">Guardar tarjeta</button>
+</form>
+<script>
+const status = document.getElementById('status');
+const form = document.getElementById('enroll');
+const root = document.querySelector('main');
+function say(m){ status.textContent = m; }
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.ready(); say('Telegram listo.'); }
+if (window.OpenPay) {
+  OpenPay.setId(root.dataset.mid);
+  OpenPay.setApiKey(root.dataset.pk);
+  OpenPay.setSandboxMode(true);
+  say('Openpay.js listo.');
+}
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  say('Tokenizando…');
+  const holder = document.getElementById('holder').value;
+  const details = {
+    holder_name: holder,
+    card_number: document.getElementById('pan').value,
+    expiration_month: document.getElementById('month').value,
+    expiration_year: document.getElementById('year').value,
+    cvv2: document.getElementById('cvv').value
+  };
+  document.getElementById('pan').value = '';
+  document.getElementById('cvv').value = '';
+  OpenPay.token.create(details, async (resp) => {
+    const tokenId = resp && resp.data && resp.data.id;
+    if (!tokenId) { say('No se obtuvo token'); return; }
+    say('Guardando…');
+    const r = await fetch('/cards/enroll', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token_id: tokenId, holder })
+    });
+    const j = await r.json();
+    if (j.ok) {
+      say('Tarjeta guardada. Cerrando…');
+      if (tg) setTimeout(() => tg.close(), 800);
+    } else say('Error: ' + (j.error || r.status));
+  }, (err) => {
+    say('Tokenización rechazada');
   });
 });
 </script></main></body></html>`;
