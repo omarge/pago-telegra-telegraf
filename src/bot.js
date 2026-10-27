@@ -8,7 +8,9 @@ if (!config.token) {
   process.exit(1);
 }
 
-const bot = new Telegraf(config.token);
+const bot = new Telegraf(config.token, {
+  telegram: { agent: null, timeout: 120000 },
+});
 
 function nipKeyboard(rid, digits) {
   const masked = digits.replace(/./g, '•');
