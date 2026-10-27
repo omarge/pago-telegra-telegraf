@@ -54,9 +54,7 @@ async function iniciarHandler(ctx) {
   }
   store.conv.set(ctx.chat.id, { step: 'amount' });
   console.log('asking amount to', ctx.from.id);
-  await ctx.reply(
-    '¿Cuánto quieres cobrar?\nEnvía el monto en centavos (1000 = $10.00 MXN)'
-  );
+  await ctx.reply('¿Cuánto quieres cobrar?\nEnvía el monto en centavos (1000 = $10.00 MXN)');
 }
 
 bot.start(iniciarHandler);
@@ -111,15 +109,19 @@ bot.on('text', async (ctx) => {
   store.conv.delete(ctx.chat.id);
   const link = `https://t.me/${ctx.botInfo.username}?start=${token}`;
   console.log('invite created', link);
+  const msg =
+    `Enlace generado.\nEnvíaselo al pagador:\n\n${link}\n\nEl pagador debe abrirlo y tocar Start.`;
   try {
-    await ctx.reply(
-      `Enlace generado.\nEnvíaselo al pagador:\n\n${link}\n\nEl pagador debe abrirlo y tocar Start.`,
-      Markup.inlineKeyboard([[Markup.button.url('Abrir enlace para el pagador', link)]])
-    );
-    console.log('[text] reply sent');
+    const sent = await ctx.reply(msg, Markup.inlineKeyboard([[Markup.button.url('Abrir enlace', link)]]));
+    console.log('[text] reply sent, message_id=', sent.message_id);
   } catch (e) {
     console.error('[text] reply failed:', e.message);
-    await ctx.reply(`Enlace: ${link}`);
+    try {
+      await ctx.telegram.sendMessage(ctx.chat.id, msg);
+      console.log('[text] fallback sent');
+    } catch (e2) {
+      console.error('[text] fallback failed:', e2.message);
+    }
   }
 });
 
