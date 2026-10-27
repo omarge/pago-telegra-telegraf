@@ -1,3 +1,6 @@
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first');
+
 const bot = require('./bot');
 const { startFormServer, setBot } = require('./formServer');
 
