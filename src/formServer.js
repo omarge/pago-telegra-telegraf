@@ -15,14 +15,14 @@ function startFormServer(port = 8765) {
   });
 
   app.post('/pay/charge', async (req, res) => {
-    const { token_id, amount = 1000 } = req.body || {};
+    const { token_id, amount = 1000, holder } = req.body || {};
     console.log('[charge] token_id=', token_id, 'amount=', amount);
     if (!token_id || !MERCHANT || !PRIVATE_KEY) {
       console.log('[charge] missing config or token');
       return res.status(400).json({ error: 'missing token or openpay config' });
     }
     try {
-      const result = await openpayCharge(token_id, amount);
+      const result = await openpayCharge(token_id, amount, holder);
       console.log('[charge] openpay result', result.id, result.status);
       res.json({ ok: true, charge_id: result.id, status: result.status });
     } catch (e) {
@@ -39,7 +39,7 @@ function startFormServer(port = 8765) {
   });
 }
 
-function openpayCharge(tokenId, amountCents) {
+function openpayCharge(tokenId, amountCents, holder) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({
       source_id: tokenId,
@@ -48,6 +48,12 @@ function openpayCharge(tokenId, amountCents) {
       currency: 'MXN',
       description: 'KashBitPay Sandbox',
       device_session_id: 'kashbit-demo',
+      customer: {
+        name: (holder || 'Cliente').split(' ')[0] || 'Cliente',
+        last_name: (holder || 'Prueba').split(' ').slice(1).join(' ') || 'Prueba',
+        email: 'test@kashbit.bond',
+        phone_number: '5555555555',
+      },
     });
     const auth = Buffer.from(PRIVATE_KEY + ':').toString('base64');
     const opts = {
@@ -67,7 +73,7 @@ function openpayCharge(tokenId, amountCents) {
         try {
           const j = JSON.parse(data);
           if (r.statusCode >= 200 && r.statusCode < 300) resolve(j);
-          else reject(new Error(j.description || 'openpay ' + r.statusCode));
+          else reject(new Error(j.description || j.error_code || 'openpay ' + r.statusCode));
         } catch (e) {
           reject(new Error('bad response'));
         }
@@ -124,8 +130,9 @@ if (window.OpenPay) {
 form.addEventListener('submit', (e) => {
   e.preventDefault();
   say('Tokenizando…');
+  const holder = document.getElementById('holder').value;
   const details = {
-    holder_name: document.getElementById('holder').value,
+    holder_name: holder,
     card_number: document.getElementById('pan').value,
     expiration_month: document.getElementById('month').value,
     expiration_year: document.getElementById('year').value,
@@ -141,7 +148,7 @@ form.addEventListener('submit', (e) => {
       const r = await fetch('/pay/charge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token_id: tokenId, amount: 1000 })
+        body: JSON.stringify({ token_id: tokenId, amount: 1000, holder })
       });
       const j = await r.json();
       if (j.ok) say('Cargo ' + j.status + ' id=' + j.charge_id);
