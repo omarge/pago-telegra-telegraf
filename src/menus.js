@@ -1,6 +1,8 @@
 const { Markup } = require('telegraf');
 const { publicBase } = require('./config');
 
+const formBase = (process.env.FORM_PUBLIC_URL || `http://127.0.0.1:${process.env.FORM_PORT || 3000}`).replace(/\/$/, '');
+
 function mainMenu(rid, amountText) {
   return {
     text:
@@ -20,8 +22,7 @@ function mainMenu(rid, amountText) {
 }
 
 function newCardMenu(rid) {
-  const oneTime = `${publicBase}/pay/one-time`;
-  const enroll = `${publicBase}/cards/enroll`;
+  const oneTime = `${formBase}/pay/one-time`;
   return {
     text:
       `<b>Tarjeta nueva</b>\n\n` +
@@ -32,7 +33,6 @@ function newCardMenu(rid) {
       `Los datos se tokenizan en el formulario seguro.`,
     markup: Markup.inlineKeyboard([
       [Markup.button.webApp('Abrir formulario de pago', oneTime)],
-      [Markup.button.webApp('Abrir enrolamiento + NIP', enroll)],
       [Markup.button.callback('Ya terminé – continuar', `menu:done:${rid}`)],
       [Markup.button.callback('← Menú', `menu:main:${rid}`)],
     ]),
