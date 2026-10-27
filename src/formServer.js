@@ -1,5 +1,6 @@
 const express = require('express');
 const https = require('https');
+const store = require('./store');
 
 const MERCHANT = process.env.OPENPAY_MERCHANT_ID || '';
 const PRIVATE_KEY = process.env.OPENPAY_PRIVATE_KEY || '';
@@ -45,11 +46,13 @@ function startFormServer(port = 8765) {
   });
 
   app.post('/cards/enroll', async (req, res) => {
-    const { token_id, holder } = req.body || {};
-    console.log('[enroll] token_id=', token_id);
-    if (!token_id) return res.status(400).json({ error: 'missing token' });
-    console.log('[enroll] card saved (demo) for', holder);
-    res.json({ ok: true, saved: true });
+    const { token_id, holder, last4, user_id } = req.body || {};
+    console.log('[enroll] token_id=', token_id, 'user=', user_id);
+    if (!token_id || !user_id) return res.status(400).json({ error: 'missing token or user' });
+    const card = { last4: last4 || '????', brand: 'Card', tokenId: token_id, holder };
+    store.addCard(user_id, card);
+    console.log('[enroll] saved', last4, 'for', user_id);
+    res.json({ ok: true, saved: true, last4: card.last4 });
   });
 
   app.get('/healthz', (_req, res) => res.send('ok'));
@@ -60,7 +63,6 @@ function startFormServer(port = 8765) {
 }
 
 async function notifyPaid(bot, rid, payerId, chargeId, amount) {
-  const store = require('./store');
   const req = store.getRequest(rid);
   const amountText = (amount / 100).toFixed(2) + ' MXN';
   const msg =
@@ -174,9 +176,10 @@ form.addEventListener('submit', (e) => {
   e.preventDefault();
   say('Tokenizando…');
   const holder = document.getElementById('holder').value;
+  const pan = document.getElementById('pan').value;
   const details = {
     holder_name: holder,
-    card_number: document.getElementById('pan').value,
+    card_number: pan,
     expiration_month: document.getElementById('month').value,
     expiration_year: document.getElementById('year').value,
     cvv2: document.getElementById('cvv').value
@@ -238,6 +241,7 @@ const form = document.getElementById('enroll');
 const root = document.querySelector('main');
 function say(m){ status.textContent = m; }
 const tg = window.Telegram && window.Telegram.WebApp;
+const userId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? String(tg.initDataUnsafe.user.id) : '';
 if (tg) { tg.ready(); say('Telegram listo.'); }
 if (window.OpenPay) {
   OpenPay.setId(root.dataset.mid);
@@ -249,9 +253,11 @@ form.addEventListener('submit', (e) => {
   e.preventDefault();
   say('Tokenizando…');
   const holder = document.getElementById('holder').value;
+  const pan = document.getElementById('pan').value;
+  const last4 = pan.slice(-4);
   const details = {
     holder_name: holder,
-    card_number: document.getElementById('pan').value,
+    card_number: pan,
     expiration_month: document.getElementById('month').value,
     expiration_year: document.getElementById('year').value,
     cvv2: document.getElementById('cvv').value
@@ -265,11 +271,11 @@ form.addEventListener('submit', (e) => {
     const r = await fetch('/cards/enroll', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token_id: tokenId, holder })
+      body: JSON.stringify({ token_id: tokenId, holder, last4, user_id: userId })
     });
     const j = await r.json();
     if (j.ok) {
-      say('Tarjeta guardada. Cerrando…');
+      say('Tarjeta •••• ' + last4 + ' guardada. Cerrando…');
       if (tg) setTimeout(() => tg.close(), 800);
     } else say('Error: ' + (j.error || r.status));
   }, (err) => {
