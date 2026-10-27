@@ -70,6 +70,7 @@ bot.action(/menu:(\w+):(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
   let view;
   if (action === 'new') view = menus.newCardMenu(rid);
+  else if (action === 'save') view = menus.saveCardMenu(rid);
   else if (action === 'saved') view = menus.savedCardsMenu(rid);
   else if (action === 'stmt') view = menus.statementMenu(rid);
   else if (action === 'cfg') view = menus.configMenu(rid);
@@ -100,7 +101,11 @@ bot.action(/menu:(\w+):(.+)/, async (ctx) => {
     const amountText = ((req.amount || 0) / 100).toFixed(2) + ' MXN';
     view = menus.mainMenu(rid, amountText);
   }
-  await ctx.editMessageText(view.text, { parse_mode: 'HTML', ...view.markup });
+  try {
+    await ctx.editMessageText(view.text, { parse_mode: 'HTML', ...view.markup });
+  } catch (e) {
+    if (!String(e.message).includes('message is not modified')) throw e;
+  }
 });
 
 bot.action(/pay:card:(\d+):(.+)/, async (ctx) => {
