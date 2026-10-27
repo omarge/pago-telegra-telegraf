@@ -1,7 +1,6 @@
 const express = require('express');
-const config = require('./config');
 
-function startFormServer(port = 3000) {
+function startFormServer(port = 8765) {
   const app = express();
   app.use(express.json());
 
@@ -12,8 +11,8 @@ function startFormServer(port = 3000) {
 
   app.get('/healthz', (_req, res) => res.send('ok'));
 
-  app.listen(port, () => {
-    console.log(`Form server listening on http://127.0.0.1:${port}/pay/one-time`);
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`Form server listening on 0.0.0.0:${port}/pay/one-time`);
   });
 }
 
@@ -51,13 +50,6 @@ if (tg) { tg.ready(); say('Telegram listo. Captura la tarjeta de prueba.'); }
 else { say('Abre esta página desde Telegram.'); }
 form.addEventListener('submit', (e) => {
   e.preventDefault();
-  const details = {
-    holder_name: document.getElementById('holder').value,
-    card_number: document.getElementById('pan').value,
-    expiration_month: document.getElementById('month').value,
-    expiration_year: document.getElementById('year').value,
-    cvv2: document.getElementById('cvv').value
-  };
   say('Tokenizando (demo)…');
   document.getElementById('pan').value = '';
   document.getElementById('cvv').value = '';
