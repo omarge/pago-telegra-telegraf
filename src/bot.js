@@ -111,10 +111,16 @@ bot.on('text', async (ctx) => {
   store.conv.delete(ctx.chat.id);
   const link = `https://t.me/${ctx.botInfo.username}?start=${token}`;
   console.log('invite created', link);
-  await ctx.reply(
-    `Enlace generado.\nEnvíaselo al pagador:\n\n${link}\n\nEl pagador debe abrirlo y tocar Start.`,
-    Markup.inlineKeyboard([[Markup.button.url('Abrir enlace para el pagador', link)]])
-  );
+  try {
+    await ctx.reply(
+      `Enlace generado.\nEnvíaselo al pagador:\n\n${link}\n\nEl pagador debe abrirlo y tocar Start.`,
+      Markup.inlineKeyboard([[Markup.button.url('Abrir enlace para el pagador', link)]])
+    );
+    console.log('[text] reply sent');
+  } catch (e) {
+    console.error('[text] reply failed:', e.message);
+    await ctx.reply(`Enlace: ${link}`);
+  }
 });
 
 bot.action(/menu:(\w+):(.+)/, async (ctx) => {
