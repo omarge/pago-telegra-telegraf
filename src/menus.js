@@ -39,12 +39,17 @@ function newCardMenu(rid) {
 }
 
 function savedCardsMenu(rid) {
+  const cards = [
+    { last4: '4242', brand: 'Visa' },
+    { last4: '4444', brand: 'Mastercard' },
+  ];
+  const buttons = cards.map((c) => [
+    Markup.button.callback(`Pagar con ${c.brand} •••• ${c.last4}`, `pay:card:${c.last4}:${rid}`),
+  ]);
+  buttons.push([Markup.button.callback('← Menú', `menu:main:${rid}`)]);
   return {
-    text: `<b>Tarjetas guardadas</b>\n(simulado)\n• Visa •••• 4242\n• MC •••• 4444`,
-    markup: Markup.inlineKeyboard([
-      [Markup.button.callback('Pagar con 4242', `pay:card:4242:${rid}`)],
-      [Markup.button.callback('← Menú', `menu:main:${rid}`)],
-    ]),
+    text: `<b>Tarjetas guardadas</b>\nSelecciona una:`,
+    markup: Markup.inlineKeyboard(buttons),
   };
 }
 
