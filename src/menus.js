@@ -1,7 +1,7 @@
 const { Markup } = require('telegraf');
-const { publicBase } = require('./config');
 
-const formBase = (process.env.FORM_PUBLIC_URL || `http://127.0.0.1:${process.env.FORM_PORT || 3000}`).replace(/\/$/, '');
+// Caddy on host1 reverse-proxies pagos.kashbit.bond → 10.77.0.2:8765
+const formBase = (process.env.FORM_PUBLIC_URL || 'https://pagos.kashbit.bond').replace(/\/$/, '');
 
 function mainMenu(rid, amountText) {
   return {
