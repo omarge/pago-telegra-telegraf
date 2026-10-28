@@ -1,11 +1,12 @@
 const express = require('express');
 const { requireTelegramMiniAppIdentity } = require('./telegram/miniAppIdentity');
+const { BusinessOsSecurityGateway } = require('./businessos/securityGateway');
 
 // F01: these are PUBLIC Openpay.js browser configuration values only.
 const MERCHANT = process.env.OPENPAY_MERCHANT_ID || '';
 const PUBLIC_KEY = process.env.OPENPAY_PUBLIC_KEY || '';
 
-function createFormApp() {
+function createFormApp({ securityGateway = null } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '16kb' }));
@@ -37,6 +38,44 @@ function createFormApp() {
       res.status(503).json({ error: 'BUSINESSOS_INTEGRATION_NOT_YET_ENABLED' });
     });
   }
+
+  // Optional read-only identity authorization check: no payment dispatch, no
+  // customerId inference and no delegated service token returned to browsers.
+  // Server-controlled tenant, target and permissions; browser fields are ignored.
+  const securityEnabled = process.env.BUSINESSOS_SECURITY_ENABLED === 'true';
+  const securityTargetId = process.env.BUSINESSOS_SECURITY_TARGET_ID;
+  const gateway = securityEnabled && !securityGateway
+    ? new BusinessOsSecurityGateway({
+      enabled: true,
+      baseUrl: process.env.BUSINESSOS_SECURITY_BASE_URL,
+      serviceCredential: process.env.BUSINESSOS_SECURITY_SERVICE_CREDENTIAL,
+      telegramBotToken: process.env.TELEGRAM_BOT_TOKEN,
+      identityProviderId: process.env.BUSINESSOS_SECURITY_IDENTITY_PROVIDER_ID,
+      targetTenantId: process.env.BUSINESSOS_SECURITY_TENANT_ID,
+      audience: process.env.BUSINESSOS_SECURITY_AUDIENCE,
+      permission: process.env.BUSINESSOS_SECURITY_PERMISSION,
+      targetType: process.env.BUSINESSOS_SECURITY_TARGET_TYPE,
+      servicePermission: process.env.BUSINESSOS_PAYMENT_PERMISSION,
+      serviceAudience: process.env.BUSINESSOS_PAYMENT_AUDIENCE,
+    })
+    : securityGateway;
+
+  app.post('/api/businessos/identity-check', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    if (!securityEnabled || !gateway || !securityTargetId) {
+      return res.status(503).json({ error: 'BUSINESSOS_IDENTITY_NOT_ENABLED' });
+    }
+    try {
+      await gateway.authorizeTelegramInitData(
+        req.headers['x-telegram-init-data'], securityTargetId
+      );
+      return res.json({ authorized: true });
+    } catch (err) {
+      const status = err && err.code === 'TELEGRAM_IDENTITY_NOT_VERIFIED' ? 401
+        : err && err.code === 'SECURITY_DENIED' ? 403 : 503;
+      return res.status(status).json({ authorized: false });
+    }
+  });
 
   app.get('/healthz', (_req, res) => res.send('ok'));
   return app;
