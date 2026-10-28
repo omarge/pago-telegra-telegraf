@@ -199,8 +199,12 @@ bot.action(/pay:card:(\d+):(.+)/, gatedFinancialCallback);
 bot.action(/nip:(.+):(.+)/, gatedFinancialCallback);
 bot.action(/confirm:yes:(.+)/, gatedFinancialCallback);
 
-bot.catch((err, ctx) => {
-  console.error('Bot error', err);
+bot.catch((_err, _ctx) => {
+  // Do not swallow failed handlers: the inbox must NOT ack unsuccessful work.
+  // Redact the underlying exception because Telegram data or credentials
+  // may be embedded in upstream errors.
+  console.error('TELEGRAM_HANDLER_FAILED');
+  throw new Error('TELEGRAM_HANDLER_FAILED');
 });
 
 module.exports = bot;
