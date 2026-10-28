@@ -32,6 +32,25 @@ function nipKeyboard(rid, digits) {
   };
 }
 
+function formatStatement(userId) {
+  const stmt = store.getStatement(userId);
+  const cards = store.getCards(userId);
+  let text = `<b>Estado de cuenta</b>\n\n`;
+  text += `Tarjetas guardadas: ${cards.length}\n`;
+  text += `Total cobrado: $${(stmt.charged / 100).toFixed(2)} MXN\n`;
+  text += `Total pagado: $${(stmt.paid / 100).toFixed(2)} MXN\n`;
+  text += `Transacciones: ${stmt.count}\n`;
+  if (stmt.recent.length > 0) {
+    text += `\n<b>Recientes:</b>\n`;
+    for (const tx of stmt.recent) {
+      const sign = tx.type === 'charge' ? '+' : '-';
+      const date = new Date(tx.date).toLocaleDateString('es-MX');
+      text += `${date} ${sign}$${(tx.amount / 100).toFixed(2)} ${tx.desc || ''}\n`;
+    }
+  }
+  return text;
+}
+
 async function iniciarHandler(ctx) {
   const userId = ctx.from.id;
   const updateId = ctx.update.update_id;
@@ -84,12 +103,7 @@ bot.command('guardar_tarjeta', (ctx) => {
 });
 
 bot.command('estado_cuenta', (ctx) => {
-  const cards = store.getCards(ctx.from.id);
-  const text =
-    `<b>Estado de cuenta</b>\n` +
-    `Tarjetas guardadas: ${cards.length}\n` +
-    `Cobros: 0\n` +
-    `Pagos: 0`;
+  const text = formatStatement(ctx.from.id);
   ctx.reply(text, { parse_mode: 'HTML' });
 });
 
@@ -150,7 +164,11 @@ bot.action(/menu:(\w+):(.+)/, async (ctx) => {
   if (action === 'new') view = menus.newCardMenu(rid);
   else if (action === 'save') view = menus.saveCardMenu(rid);
   else if (action === 'saved') view = menus.savedCardsMenu(rid, ctx.from.id);
-  else if (action === 'stmt') view = menus.statementMenu(rid);
+  else if (action === 'stmt') {
+    const text = formatStatement(ctx.from.id);
+    await ctx.editMessageText(text, { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('← Menú', `menu:main:${rid}`)]]) });
+    return;
+  }
   else if (action === 'cfg') view = menus.configMenu(rid);
   else if (action === 'reject') {
     store.setState(rid, 'DECLINED');
@@ -213,12 +231,18 @@ bot.action(/nip:(.+):(.+)/, async (ctx) => {
     if (current === expected) {
       const req = store.getRequest(rid);
       store.setState(rid, 'PAID');
-      const amountText = req ? (req.amount / 100).toFixed(2) + ' MXN' : '';
+      const amount = req ? req.amount : 0;
+      const amountText = (amount / 100).toFixed(2) + ' MXN';
+      const tracking = 'SIM-' + Date.now();
+      store.addTransaction(ctx.from.id, { type: 'payment', amount, desc: tracking });
+      if (req && req.requesterId) {
+        store.addTransaction(req.requesterId, { type: 'charge', amount, desc: tracking });
+      }
       const msg =
         `✅ <b>Pago completado</b>\n` +
         `Solicitud: <code>${rid}</code>\n` +
         (amountText ? `Importe: ${amountText}\n` : '') +
-        `Rastreo: <code>SIM-${Date.now()}</code>`;
+        `Rastreo: <code>${tracking}</code>`;
       await ctx.editMessageText(msg, { parse_mode: 'HTML' });
       if (req && req.requesterId) {
         try {
@@ -248,12 +272,18 @@ bot.action(/confirm:yes:(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
   const req = store.getRequest(rid);
   store.setState(rid, 'PAID');
-  const amountText = req ? (req.amount / 100).toFixed(2) + ' MXN' : '';
+  const amount = req ? req.amount : 0;
+  const amountText = (amount / 100).toFixed(2) + ' MXN';
+  const tracking = 'SIM-' + Date.now();
+  store.addTransaction(ctx.from.id, { type: 'payment', amount, desc: tracking });
+  if (req && req.requesterId) {
+    store.addTransaction(req.requesterId, { type: 'charge', amount, desc: tracking });
+  }
   const msg =
     `✅ <b>Pago completado</b>\n` +
     `Solicitud: <code>${rid}</code>\n` +
     (amountText ? `Importe: ${amountText}\n` : '') +
-    `Rastreo: <code>SIM-${Date.now()}</code>`;
+    `Rastreo: <code>${tracking}</code>`;
   await ctx.editMessageText(msg, { parse_mode: 'HTML' });
   if (req && req.requesterId) {
     try {
