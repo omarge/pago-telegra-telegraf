@@ -147,6 +147,7 @@ async function runDurableTelegram({pool,inbox,getUpdates,handleUpdate,signal}={}
   const localAbort=new AbortController();
   const stop=()=>localAbort.abort();
   if(signal)signal.addEventListener('abort',stop,{once:true});
+  if(signal?.aborted)stop();
   const transport=new DurableTelegramTransport({inbox,getUpdates,handleUpdate});
   try {
     await transport.initialize();
