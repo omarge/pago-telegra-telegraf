@@ -7,6 +7,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const {TelegramBusinessOsIdentityPreflight}=require('../src/businessos/telegramIdentityPreflight');
 const {PostgresTelegramInbox}=require('../src/telegram/postgresInbox');
+const {verifyTelegramMiniAppInitData}=require('../src/telegram/miniAppIdentity');
 const {PostgresDemoInviteAuthority}=require('../src/telegram/postgresDemoInvites');
 
 const BOT_TOKEN='1234567:ci-only-not-real';
@@ -47,7 +48,7 @@ function ports(changes={}){
     }},
     securityGateway:{authorizeTelegramInitData:async (data,targetId)=>{
       calls.security++;assert.equal(targetId,'merchant-A');
-      assert.equal(data,signed());
+      assert.equal(verifyTelegramMiniAppInitData(data,BOT_TOKEN).telegramUserId,'91234001');
       if(changes.fail==='security')throw Error('secret-bearer');
       return actor;
     }},
