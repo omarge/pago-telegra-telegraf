@@ -64,7 +64,7 @@ external send. UNKNOWN requires operational reconciliation.
 `tests/telegramF05eProjection.test.js` uses independently named
 disposable PostgreSQL 18 schema, synthetic Telegram envelopes and a
 stub sendMessage to certify:
-- Signed/fenced inbound claim is required to enqueue;
+- A live UUID-fenced PostgreSQL inbox claim is required to enqueue;
 - Unmigrated bot actions, financial requests and private-chat
   impersonation are rejected without side effects;
 - Inbox → outbox → simulated sender yields one SENT notification,
