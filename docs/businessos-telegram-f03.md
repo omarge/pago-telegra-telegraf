@@ -34,8 +34,29 @@ target, scope and membership; malformed and suspicious replies fail closed.
 No retry occurs for any network error.
 
 requestServiceDelegation(trustedTargetId) requests a separate bounded payment
-service token, which must be consumed SERVER-SIDE only. Neither method is yet
-called by Express or Telegraf, and neither accesses a real Security Engine.
+service token, which must be consumed SERVER-SIDE only.
+
+Express exposes only POST /api/businessos/identity-check behind the exact
+BUSINESSOS_SECURITY_ENABLED=true flag; the default is an unconditional 503.
+When explicitly configured, it calls authorizeTelegramInitData with signed
+X-Telegram-Init-Data and a server-owned targetId, ignores any browser-supplied
+tenant/target/actor/customer fields and returns only {authorized:true} or a
+generic 401/403/503 error. It never exposes actor, membership or tokens.
+All three financial POST routes remain 503; this is not payment enablement.
+
+Required server runtime configuration names (do not commit real values):
+- BUSINESSOS_SECURITY_ENABLED (default false)
+- BUSINESSOS_SECURITY_BASE_URL (HTTPS)
+- BUSINESSOS_SECURITY_SERVICE_CREDENTIAL (opaque secret)
+- TELEGRAM_BOT_TOKEN (existing secret)
+- BUSINESSOS_SECURITY_IDENTITY_PROVIDER_ID (provisioned bot namespace)
+- BUSINESSOS_SECURITY_TENANT_ID, BUSINESSOS_SECURITY_AUDIENCE
+- BUSINESSOS_SECURITY_PERMISSION, BUSINESSOS_SECURITY_TARGET_TYPE
+- BUSINESSOS_SECURITY_TARGET_ID (trusted merchant account)
+- BUSINESSOS_PAYMENT_PERMISSION, BUSINESSOS_PAYMENT_AUDIENCE
+
+These values are deliberately unset in GitHub and runtime by this PR.
+The gateway has only fake transport tests and does not call live Security.
 
 ## Outstanding operational gates
 1. Provision a bot-scoped ExternalIdentity provider namespace and persisted
@@ -47,7 +68,7 @@ called by Express or Telegraf, and neither accesses a real Security Engine.
    owned, durable payment request; never trust request_id from Mini App alone.
 4. Verify the canonical CustomerVault customerId through a separate authorized
    identity/account mapping. No inference from Security actorId.
-5. Connect the gateway to a guarded BFF integration after actual Security
+5. The BFF identity-check endpoint is wired but DISABLED until actual Security
    environment readiness. All financial HTTP routes remain 503 / NO_GO.
 6. Validate the exact audience and permission policy with Security Engine
    independently before runtime operations.
