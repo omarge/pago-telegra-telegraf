@@ -88,7 +88,7 @@ async function iniciarHandler(ctx) {
   }
   store.conv.set(ctx.chat.id, { step: 'amount' });
   console.log('asking amount to', userId);
-  await ctx.reply('¿Cuánto quieres cobrar?\nEnvía el monto en centavos (1000 = $10.00 MXN)');
+  await ctx.reply('¿Cuánto quieres cobrar?\nEnvía el monto en pesos (ejemplo: 10 para $10.00 MXN)');
 }
 
 bot.start(iniciarHandler);
@@ -130,14 +130,15 @@ bot.on('text', async (ctx) => {
   console.log('[text] state:', state);
   if (!state || state.step !== 'amount') return;
   console.log('amount text', text, 'from', ctx.from.id);
-  const amount = parseInt(text, 10);
-  if (!amount || amount <= 0) {
-    return ctx.reply('Monto inválido. Envía un número (1000 = $10.00).');
+  const pesos = parseFloat(text);
+  if (!pesos || pesos <= 0) {
+    return ctx.reply('Monto inválido. Envía un número (10 = $10.00).');
   }
+  const amount = Math.round(pesos * 100);
   const token = store.createInvite(ctx.from.id, amount);
   store.conv.delete(ctx.chat.id);
   const link = `https://t.me/${ctx.botInfo.username}?start=${token}`;
-  console.log('invite created', link);
+  console.log('invite created', link, 'amount cents', amount);
   const msg =
     `Enlace generado.\nEnvíaselo al pagador:\n\n${link}\n\nEl pagador debe abrirlo y tocar Start.`;
   try {
