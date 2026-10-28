@@ -102,9 +102,11 @@ class PostgresTelegramInbox {
     }
     const lease = crypto.randomUUID();
     const r = await this.execute(
-      'WITH candidate AS (SELECT update_id FROM kashbit_telegram_inbox ' +
-      "WHERE (state = 'PENDING' OR (state = 'PROCESSING' AND leased_until < now())) " +
-      'AND attempts < 12 ORDER BY update_id LIMIT 1 FOR UPDATE SKIP LOCKED) ' +
+      'WITH candidate AS (SELECT i.update_id FROM kashbit_telegram_inbox AS i ' +
+      "WHERE (i.state = 'PENDING' OR (i.state = 'PROCESSING' AND i.leased_until < now())) " +
+      'AND i.attempts < 12 AND NOT EXISTS (SELECT 1 FROM kashbit_telegram_inbox AS older ' +
+      "WHERE older.update_id < i.update_id AND older.state NOT IN ('DONE', 'QUARANTINED')) " +
+      'ORDER BY i.update_id LIMIT 1 FOR UPDATE OF i SKIP LOCKED) ' +
       'UPDATE kashbit_telegram_inbox AS i ' +
       "SET state = 'PROCESSING', lease_id = $1::uuid, " +
       "leased_until = now() + ($2::integer * interval '1 second'), " +
