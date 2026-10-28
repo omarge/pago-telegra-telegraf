@@ -45,6 +45,10 @@ Do not enable against production or any existing Payment Engine schema.
    integrity failures are quarantined; there is no silent drop.
 7. `bot.catch` now propagates a redacted generic error rather than swallowing
    handler failures and incorrectly reporting successful processing.
+8. SIGINT/SIGTERM in `durable-uat` request cooperative cancellation, stop
+   accepting new Express requests, finish in-flight work and release the
+   PostgreSQL advisory ownership before process shutdown. Pre-aborted
+   transports never start polling.
 
 ## Guarantee boundaries and blockers
 
