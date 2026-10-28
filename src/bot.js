@@ -13,7 +13,7 @@ const bot = new Telegraf(config.token, {
 });
 
 const lastStart = new Map();
-const START_COOLDOWN = 5000;
+const START_COOLDOWN = 10000;
 
 function nipKeyboard(rid, digits) {
   const masked = digits.replace(/./g, '•');
@@ -34,15 +34,16 @@ function nipKeyboard(rid, digits) {
 
 async function iniciarHandler(ctx) {
   const userId = ctx.from.id;
+  const updateId = ctx.update.update_id;
   const now = Date.now();
   const last = lastStart.get(userId) || 0;
   if (now - last < START_COOLDOWN) {
-    console.log('/start ignored (cooldown)', userId);
+    console.log('/start ignored (cooldown)', userId, 'update', updateId);
     return;
   }
   lastStart.set(userId, now);
 
-  console.log('/start or /iniciar from', userId, ctx.message.text);
+  console.log('/start from', userId, 'update', updateId, 'text:', ctx.message.text);
   const text = ctx.message.text || '';
   const parts = text.split(' ');
   if (parts.length > 1) {
@@ -109,7 +110,7 @@ bot.command('configuracion', (ctx) => {
 
 bot.on('text', async (ctx) => {
   const text = (ctx.message.text || '').trim();
-  console.log('[text] received:', JSON.stringify(text), 'chat', ctx.chat.id);
+  console.log('[text] received:', JSON.stringify(text), 'chat', ctx.chat.id, 'update', ctx.update.update_id);
   if (text.startsWith('/')) return;
   const state = store.conv.get(ctx.chat.id);
   console.log('[text] state:', state);
