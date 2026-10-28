@@ -9,6 +9,7 @@ class UatCommandError extends Error {
 }
 
 const COMMAND = '/estado_cuenta';
+const OUTBOX_ACTION = 'statement-unavailable-v1';
 const MESSAGE = 'Estado de cuenta aún no disponible: pendiente de Financial Subledger de BusinessOS. No se ha ejecutado ningún pago.';
 
 function eligibleInformationalUpdate(update) {
@@ -41,10 +42,10 @@ function createUatCommandHandler({outbox}={}) {
     return outbox.enqueueForClaim({
       updateId:claim.updateId,
       inboxLeaseId:claim.inboxLeaseId,
-      actionKey:'statement-unavailable-v1',
+      actionKey:OUTBOX_ACTION,
       message:{chatId,text:MESSAGE},
     });
   };
 }
 
-module.exports={createUatCommandHandler,eligibleInformationalUpdate,UatCommandError};
+module.exports={createUatCommandHandler,eligibleInformationalUpdate,UatCommandError,OUTBOX_ACTION,MESSAGE};
