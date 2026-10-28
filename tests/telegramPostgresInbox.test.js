@@ -1,5 +1,5 @@
 'use strict';
-const { describe, it, before, after } = require('node:test');
+const { describe, it, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -60,6 +60,7 @@ describe('F05b PostgreSQL 18 encrypted inbox / lease fencing',{
     await pool.query(script);
     inbox=create(pool);
   });
+  beforeEach(async()=>{await pool.query('TRUNCATE kashbit_telegram_inbox');});
   after(async()=>{if(pool)await pool.end();});
 
   it('persists only AES-GCM encrypted payload, supports restart and exact retry',async()=>{
