@@ -113,7 +113,9 @@ class DurableTelegramTransport {
     const timer=setInterval(tick,this.heartbeatMs);
     let handlerFailed=false;
     try {
-      try {await this.handleUpdate(claimed.update);}
+      try {await this.handleUpdate(claimed.update, Object.freeze({
+        updateId: claimed.updateId, inboxLeaseId: claimed.leaseId,
+      }));}
       catch (_) {handlerFailed=true;}
       // The handler may complete after a lost lease. Never acknowledge it.
       clearInterval(timer);
