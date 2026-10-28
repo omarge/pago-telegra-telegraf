@@ -83,7 +83,7 @@ function createFormApp({ securityGateway = null } = {}) {
 
 function startFormServer(port = 8765) {
   const app = createFormApp();
-  app.listen(port, '0.0.0.0', () => {
+  return app.listen(port, '0.0.0.0', () => {
     console.log('Form server listening on 0.0.0.0:' + port + '/pay/one-time');
   });
 }
