@@ -102,6 +102,27 @@ class PostgresDemoInviteAuthority {
     });
   }
 
+  async findRedemption(demoInviteId) {
+    this.guard();
+    if(typeof demoInviteId!=='string' || !UUID.test(demoInviteId)) {
+      throw new DemoInviteError('DEMO_INVITE_INPUT_INVALID');
+    }
+    // Server-only lookup. NEVER expose this method over public GET/Telegram.
+    return this.inTransaction(async client=>{
+      const result=await client.query(
+        'SELECT c.invite_id,c.payer_telegram_id FROM kashbit_telegram_demo_claims c '+
+        'WHERE c.invite_id=$1::uuid',[demoInviteId]);
+      if(result.rows.length===0)return null;
+      if(result.rows.length!==1)throw new DemoInviteError('DEMO_INVITE_DATABASE_UNAVAILABLE');
+      const payer=Number(result.rows[0].payer_telegram_id);
+      if(!int(payer))throw new DemoInviteError('DEMO_INVITE_DATABASE_UNAVAILABLE');
+      return Object.freeze({
+        demoInviteId:result.rows[0].invite_id,payerTelegramId:payer,
+        status:'DEMO_REDEEMED_NO_PAYMENT',
+      });
+    });
+  }
+
   async authorizeLinkDelivery({sourceUpdateId,requesterTelegramId,token}={}) {
     this.guard();
     if(!int(sourceUpdateId,true) || !int(requesterTelegramId) ||
