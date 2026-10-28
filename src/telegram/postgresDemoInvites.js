@@ -111,7 +111,7 @@ class PostgresDemoInviteAuthority {
     return this.inTransaction(async client=>{
       await this.assertLiveInbox(client,updateId,inboxLeaseId);
       const invite=(await client.query(
-        'SELECT invite_id,requester_telegram_id,amount_cents,expires_at '+
+        'SELECT invite_id,requester_telegram_id,amount_cents,expires_at, (expires_at > now()) AS still_valid '+
         'FROM kashbit_telegram_demo_invites WHERE token_digest=$1 FOR UPDATE',
         [digest])).rows[0];
       if(!invite) throw new DemoInviteError('DEMO_INVITE_NOT_FOUND');
@@ -132,7 +132,7 @@ class PostgresDemoInviteAuthority {
           created:false,status:'DEMO_REDEEMED_NO_PAYMENT',
         });
       }
-      if(new Date(invite.expires_at).getTime()<=Date.now()) {
+      if(invite.still_valid !== true) {
         throw new DemoInviteError('DEMO_INVITE_EXPIRED');
       }
       // Lock of the parent invite serializes rival redeemers.
