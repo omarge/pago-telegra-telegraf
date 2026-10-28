@@ -9,6 +9,7 @@ const { PostgresTelegramInbox } = require('./telegram/postgresInbox');
 const { PostgresTelegramOutbox } = require('./telegram/postgresOutbox');
 const { PostgresDemoInviteAuthority } = require('./telegram/postgresDemoInvites');
 const { createUatCommandHandler } = require('./telegram/uatCommandHandler');
+const { usernameValid } = require('./telegram/demoLinkPolicy');
 const { runOutboxDispatcher } = require('./telegram/outboxDispatcher');
 const { runDurableTelegram } = require('./telegram/durableTransport');
 
@@ -40,7 +41,7 @@ if (senderEnabled && (
 if(demoLinksEnabled && (
   mode!=='durable-uat' || !demoInvitesEnabled || !senderEnabled ||
   process.env.KASHBIT_DEMO_LINKS_UAT_ACK!=='YES_DEMO_LINKS_NO_PAYMENT' ||
-  !/^[A-Za-z][A-Za-z0-9_]{4,31}bot$/i.test(process.env.TELEGRAM_UAT_BOT_USERNAME||''))) {
+  !usernameValid(process.env.TELEGRAM_UAT_BOT_USERNAME))) {
   throw new Error('UAT_DEMO_LINKS_NOT_AUTHORIZED');
 }
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -135,7 +136,7 @@ async function runUatDurablePolling(signal) {
             pool,inbox,getUpdates,handleUpdate,signal:halt.signal,
           }).catch(e=>{stop();throw e;}),
           runOutboxDispatcher({
-            outbox,demoInvites,
+            outbox,demoInvites,linksEnabled:demoLinksEnabled,
             telegramBotUsername:process.env.TELEGRAM_UAT_BOT_USERNAME,
             sendMessage:(chatId,text)=>bot.telegram.sendMessage(chatId,text),
             signal:halt.signal,
