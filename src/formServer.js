@@ -62,9 +62,10 @@ function startFormServer(port = 8765) {
 
   app.post('/nip/change', async (req, res) => {
     const { user_id, old_pin, new_pin } = req.body || {};
-    console.log('[nip] change for', user_id);
+    console.log('[nip] change for', user_id, 'old=', old_pin, 'new=', new_pin);
     if (!user_id || !old_pin || !new_pin) return res.status(400).json({ error: 'missing fields' });
     const current = store.getPin(user_id);
+    console.log('[nip] current pin for', user_id, '=', current);
     if (old_pin !== current) return res.status(403).json({ error: 'NIP actual incorrecto' });
     if (!/^\d{4}$/.test(new_pin)) return res.status(400).json({ error: 'NIP debe ser 4 dígitos' });
     store.setPin(user_id, new_pin);
@@ -326,28 +327,36 @@ button{margin-top:20px;padding:14px;width:100%;border:0;border-radius:8px;backgr
 <script>
 const status = document.getElementById('status');
 const form = document.getElementById('nipform');
-function say(m){ status.textContent = m; }
+function say(m){ status.textContent = m; console.log('[nip]', m); }
 const tg = window.Telegram && window.Telegram.WebApp;
 const userId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? String(tg.initDataUnsafe.user.id) : '';
-if (tg) { tg.ready(); say('Telegram listo.'); }
+if (tg) { tg.ready(); say('Telegram listo. user=' + userId); }
+else { say('Abre desde Telegram.'); }
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const oldP = document.getElementById('old').value;
-  const n1 = document.getElementById('n1').value;
-  const n2 = document.getElementById('n2').value;
+  const oldP = (document.getElementById('old').value || '').replace(/\D/g, '');
+  const n1 = (document.getElementById('n1').value || '').replace(/\D/g, '');
+  const n2 = (document.getElementById('n2').value || '').replace(/\D/g, '');
+  console.log('[nip] old=', oldP, 'n1=', n1, 'n2=', n2, 'user=', userId);
   if (n1 !== n2) { say('Los NIP nuevos no coinciden.'); return; }
-  if (!/^\d{4}$/.test(n1)) { say('El NIP debe ser 4 dígitos.'); return; }
+  if (n1.length !== 4) { say('El NIP debe ser 4 dígitos. Recibido: ' + n1.length); return; }
+  if (!userId) { say('No se detectó usuario de Telegram.'); return; }
   say('Verificando…');
-  const r = await fetch('/nip/change', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: userId, old_pin: oldP, new_pin: n1 })
-  });
-  const j = await r.json();
-  if (j.ok) {
-    say('NIP actualizado. Cerrando…');
-    if (tg) setTimeout(() => tg.close(), 800);
-  } else say('Error: ' + (j.error || r.status));
+  try {
+    const r = await fetch('/nip/change', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, old_pin: oldP, new_pin: n1 })
+    });
+    const j = await r.json();
+    console.log('[nip] response', j);
+    if (j.ok) {
+      say('NIP actualizado. Cerrando…');
+      if (tg) setTimeout(() => tg.close(), 800);
+    } else say('Error: ' + (j.error || r.status));
+  } catch (err) {
+    say('Error de red: ' + err.message);
+  }
 });
 </script></main></body></html>`;
 }
