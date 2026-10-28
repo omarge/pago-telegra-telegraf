@@ -3,6 +3,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const store = require('../src/store');
 const bot = require('../src/bot');
+const { Telegram } = require('telegraf');
 
 function update(data, fromId, index) {
   return {
@@ -27,9 +28,9 @@ describe('F02 Telegram callback economic-authority NO_GO', () => {
     const requesterId = 5500998;
     const payerId = 5500999;
     const request = store.createRequest(requesterId, payerId, 12345);
-    const originalApi = bot.telegram.callApi;
+    const originalApi = Telegram.prototype.callApi;
     const apiCalls = [];
-    bot.telegram.callApi = async (method, payload) => {
+    Telegram.prototype.callApi = async (method, payload) => {
       apiCalls.push({ method, payload });
       return true;
     };
@@ -58,15 +59,15 @@ describe('F02 Telegram callback economic-authority NO_GO', () => {
       assert.ok(!text.includes('Pago completado'));
       assert.ok(apiCalls.every(c => c.method !== 'sendMessage'));
     } finally {
-      bot.telegram.callApi = originalApi;
+      Telegram.prototype.callApi = originalApi;
     }
   });
 
   it('denies callback of a different Telegram actor', async () => {
     const req = store.createRequest(6600777, 6600888, 1000);
-    const oldApi = bot.telegram.callApi;
+    const oldApi = Telegram.prototype.callApi;
     const calls = [];
-    bot.telegram.callApi = async (method, payload) => { calls.push({method, payload}); return true; };
+    Telegram.prototype.callApi = async (method, payload) => { calls.push({method, payload}); return true; };
     try {
       await bot.handleUpdate(update('menu:main:' + req.id, 6600999, 998),
         { id: 123456, username: 'testbot', is_bot: true, first_name: 'Bot' });
@@ -74,7 +75,7 @@ describe('F02 Telegram callback economic-authority NO_GO', () => {
       assert.ok(calls.some(c => c.method === 'editMessageText' &&
         String(c.payload.text).includes('no autorizada')));
     } finally {
-      bot.telegram.callApi = oldApi;
+      Telegram.prototype.callApi = oldApi;
     }
   });
 });
