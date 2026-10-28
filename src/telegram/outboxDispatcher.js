@@ -9,7 +9,7 @@ class OutboxDispatchError extends Error {
   constructor(code) { super(code); this.name='OutboxDispatchError'; this.code=code; }
 }
 class TelegramOutboxDispatcher {
-  constructor({outbox,sendMessage,demoInvites=null,telegramBotUsername=null}={}) {
+  constructor({outbox,sendMessage,demoInvites=null,telegramBotUsername=null,linksEnabled=false}={}) {
     if (!outbox || typeof outbox.claimForSend !== 'function' ||
         typeof outbox.markSent !== 'function' ||
         typeof outbox.finishUnknown !== 'function' ||
@@ -20,6 +20,7 @@ class TelegramOutboxDispatcher {
     this.sendMessage=sendMessage;
     this.demoInvites=demoInvites;
     this.telegramBotUsername=telegramBotUsername;
+    this.linksEnabled=linksEnabled===true;
   }
 
   async dispatchOnce() {
@@ -34,10 +35,10 @@ class TelegramOutboxDispatcher {
         const fixed=(
           (claimed.actionKey===OUTBOX_ACTION && message.text===MESSAGE) ||
           (claimed.actionKey===DEMO_INVITE_ACTION && message.text===DEMO_INVITE_MESSAGE) ||
-          (claimed.actionKey===REDEEM_ACTION && message.text===REDEEM_MESSAGE)
+          (this.linksEnabled && claimed.actionKey===REDEEM_ACTION && message.text===REDEEM_MESSAGE)
         );
         if(fixed) permitted=true;
-        else if(claimed.actionKey===DEMO_LINK_ACTION &&
+        else if(this.linksEnabled && claimed.actionKey===DEMO_LINK_ACTION &&
                 this.demoInvites &&
                 typeof this.demoInvites.authorizeLinkDelivery==='function') {
           const token=tokenFromDemoLink(message.text,this.telegramBotUsername);
@@ -89,8 +90,8 @@ class TelegramOutboxDispatcher {
   }
 }
 
-async function runOutboxDispatcher({outbox,sendMessage,signal,demoInvites=null,telegramBotUsername=null}={}) {
-  const dispatcher=new TelegramOutboxDispatcher({outbox,sendMessage,demoInvites,telegramBotUsername});
+async function runOutboxDispatcher({outbox,sendMessage,signal,demoInvites=null,telegramBotUsername=null,linksEnabled=false}={}) {
+  const dispatcher=new TelegramOutboxDispatcher({outbox,sendMessage,demoInvites,telegramBotUsername,linksEnabled});
   while(!signal?.aborted) {
     const delivered=await dispatcher.dispatchOnce();
     if (!delivered) {
