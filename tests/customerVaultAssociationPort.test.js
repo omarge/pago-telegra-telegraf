@@ -113,6 +113,7 @@ describe('F06b-01 CustomerVault association contract (unimplemented backend)',()
       {associationVersion:0}, {associationVersion:-1},
       {associationVersion:1.1}, {associationVersion:'2'},
       {validatedAt:'tomorrow'}, {validatedAt:null},
+      {validatedAt:'2026-02-30T21:00:00Z'},
       {validatedAt:new Date(NOW-31000).toISOString()},
       {validatedAt:new Date(NOW+31000).toISOString()},
     ]){
