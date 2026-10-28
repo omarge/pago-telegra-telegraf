@@ -40,9 +40,10 @@ describe('F05e-02B Telegram deep-link policy and bypass rejection',()=>{
     for(const changed of [
       text.replace('https://t.me/','https://evil.example/'),
       text.replace(BOT,'AnotherFakeBot'),
-      text.replace(token,'ki_'+'B'.repeat(43)),
       text+'?',
     ]) assert.throws(()=>tokenFromDemoLink(changed,BOT));
+    assert.equal(tokenFromDemoLink(text.replace(token,'ki_'+'B'.repeat(43)),BOT),
+      'ki_'+'B'.repeat(43)); // DB HMAC ownership rejects this, not syntax.
   });
   it('keeps demo links disabled unless explicitly provisioned',async()=>{
     const handler=createUatCommandHandler({
