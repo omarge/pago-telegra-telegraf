@@ -1,0 +1,40 @@
+name: F05 PostgreSQL Canonical Requests
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-required:
+    name: PostgreSQL 18 / immutable requests / concurrency
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: f05_ci
+          POSTGRES_USER: f05_ci
+          POSTGRES_PASSWORD: f05_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U f05_ci -d f05_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: npm install
+      - name: Run all tests against isolated PostgreSQL
+        env:
+          TELEGRAM_BOT_TOKEN: test-token
+          F05_POSTGRES_URL: postgres://f05_ci:f05_ci@127.0.0.1:5432/f05_ci
+        run: npm test
