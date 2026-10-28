@@ -33,4 +33,4 @@ function startToken(text) {
   const match=/^\/start (ki_[A-Za-z0-9_-]{43})$/.exec(text);
   return match?match[1]:null;
 }
-module.exports={ACTION,REDEEM_ACTION,REDEEM_MESSAGE,renderDemoLink,tokenFromDemoLink,startToken,DemoLinkError};
+module.exports={ACTION,REDEEM_ACTION,REDEEM_MESSAGE,renderDemoLink,tokenFromDemoLink,startToken,usernameValid,DemoLinkError};
