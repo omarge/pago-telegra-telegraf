@@ -6,7 +6,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const {randomUUID,randomBytes}=require('node:crypto');
 const {PostgresTelegramInbox}=require('../src/telegram/postgresInbox');
-const {DurableTelegramTransport,acquirePollerOwner}=require('../src/telegram/durableTransport');
+const {DurableTelegramTransport,acquirePollerOwner,runDurableTelegram}=require('../src/telegram/durableTransport');
 
 const KEY=randomBytes(32).toString('hex');
 const sample=(id,label='hello')=>({
@@ -202,4 +202,38 @@ describe('F05c PostgreSQL 18 durable Telegram ingress/worker certification',{
     assert.equal(exhausted.state,'QUARANTINED');
     assert.equal(await inbox.ack(claim.updateId,claim.leaseId),true);
   });
+  it('stops gracefully, drains worker and releases the poller owner',async()=>{
+    await pool.query('TRUNCATE kashbit_telegram_inbox');
+    const stop=new AbortController();
+    let received=0,polls=0;
+    const running=runDurableTelegram({
+      pool,inbox,signal:stop.signal,
+      getUpdates:async()=>{polls++;return {ok:true,result:[]};},
+      handleUpdate:async()=>{received++;},
+    });
+    await wait(170);
+    stop.abort();
+    await running;
+    assert.ok(polls>=1);
+    assert.equal(received,0);
+    const next=await acquirePollerOwner(pool);
+    await next.verify();
+    await next.release();
+  });
+
+  it('does not poll when shutdown was requested before initialization',async()=>{
+    await pool.query('TRUNCATE kashbit_telegram_inbox');
+    const stop=new AbortController();
+    stop.abort();
+    let polls=0;
+    await runDurableTelegram({
+      pool,inbox,signal:stop.signal,
+      getUpdates:async()=>{polls++;return {ok:true,result:[]};},
+      handleUpdate:async()=>{},
+    });
+    assert.equal(polls,0);
+    const next=await acquirePollerOwner(pool);
+    await next.release();
+  });
+
 });
