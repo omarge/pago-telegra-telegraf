@@ -4,6 +4,7 @@ dns.setDefaultResultOrder('ipv4first');
 const https = require('https');
 const bot = require('./bot');
 const { startFormServer } = require('./formServer');
+const { processTelegramUpdatesInOrder } = require('./telegram/processUpdates');
 
 const PORT = process.env.FORM_PORT || 8765;
 startFormServer(PORT);
@@ -27,27 +28,22 @@ function getUpdates(offset) {
 
 (async () => {
   let offset = 0;
-  try {
-    const r = await getUpdates(-1);
-    if (r.result && r.result.length > 0) {
-      offset = r.result[r.result.length - 1].update_id + 1;
-      console.log('Dropped pending, starting from', offset);
-    } else {
-      console.log('No pending updates');
-    }
-  } catch (e) {
-    console.log('drop error:', e.message);
-  }
+  // Never discard unacknowledged updates on startup. Telegram retains them
+  // until a subsequent getUpdates(offset) confirms a processed delivery.
+  console.log('Polling will preserve pending Telegram updates');
 
   async function poll() {
     try {
       const r = await getUpdates(offset);
-      if (r.result) {
-        for (const u of r.result) {
-          offset = u.update_id + 1;
-          bot.handleUpdate(u);
-        }
+      if (!r || r.ok !== true || !Array.isArray(r.result)) {
+        throw new Error('Invalid Telegram getUpdates response');
       }
+      await processTelegramUpdatesInOrder(
+        r.result,
+        (update) => bot.handleUpdate(update),
+        offset,
+        (processedOffset) => { offset = processedOffset; }
+      );
     } catch (e) {
       console.error('poll error:', e.message);
       await new Promise(r => setTimeout(r, 3000));
