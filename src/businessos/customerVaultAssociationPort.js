@@ -35,7 +35,13 @@ function validateReply(data,intent,nowMs,maxAgeMs) {
     throwInvalid();
   }
   const at=Date.parse(data.validatedAt);
-  if(!Number.isFinite(at) || new Date(at).toISOString() !== new Date(data.validatedAt).toISOString() ||
+  if(!Number.isFinite(at)) throwInvalid();
+  // Reject impossible calendar dates that Date.parse otherwise normalizes,
+  // e.g. February 30. Canonicalize optional 1-3 decimal millisecond digits.
+  const normalized = /\.\d{1,3}Z$/.test(data.validatedAt)
+    ? data.validatedAt.replace(/\.(\d{1,3})Z$/, (_,ms)=>'.'+ms.padEnd(3,'0')+'Z')
+    : data.validatedAt.replace(/Z$/,'.000Z');
+  if(normalized!==new Date(at).toISOString() ||
      at>nowMs+30000 || nowMs-at>maxAgeMs) throwInvalid();
   // Transport may return extra internal fields; we never expose them.
   // The backend itself is responsible for proving the association:
