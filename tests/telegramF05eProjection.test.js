@@ -8,7 +8,7 @@ const {randomUUID,randomBytes,randomInt}=require('node:crypto');
 const {PostgresTelegramInbox}=require('../src/telegram/postgresInbox');
 const {PostgresTelegramOutbox}=require('../src/telegram/postgresOutbox');
 const {DurableTelegramTransport}=require('../src/telegram/durableTransport');
-const {createUatCommandHandler}=require('../src/telegram/uatCommandHandler');
+const {createUatCommandHandler,MESSAGE}=require('../src/telegram/uatCommandHandler');
 const {TelegramOutboxDispatcher}=require('../src/telegram/outboxDispatcher');
 
 const KEY=randomBytes(32).toString('hex');
@@ -59,7 +59,7 @@ describe('F05e Telegram informational command projection contracts',()=>{
     const dispatcher=new TelegramOutboxDispatcher({
       outbox:{
         claimForSend:async()=>sent===0?{updateId:5,actionKey:'statement-unavailable-v1',
-          dispatchId:randomUUID(),message:{chatId:11,text:'sample'}}:null,
+          dispatchId:randomUUID(),message:{chatId:11,text:MESSAGE}}:null,
         markSent:async()=>{throw Error('not expected');},
         finishUnknown:async()=>{unknown++;return true;},
       },
