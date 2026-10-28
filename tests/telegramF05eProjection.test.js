@@ -210,4 +210,30 @@ describe('F05e PostgreSQL 18 inbox -> outbox -> controlled sender',{
       'SELECT state FROM kashbit_telegram_outbox WHERE update_id=$1',
       [id])).rows[0].state,'IN_FLIGHT');
   });
+  it('never sends an unapproved payment-completed intent from PostgreSQL',async()=>{
+    const id=next();
+    await inbox.append(update(id));
+    const claimed=await inbox.claim({leaseSeconds:90});
+    await outbox.enqueueForClaim({
+      updateId:id,inboxLeaseId:claimed.leaseId,
+      actionKey:'paid-confirmation',message:{
+        chatId:5500123,text:'Pago completado'
+      },
+    });
+    assert.equal(await inbox.ack(id,claimed.leaseId),true);
+    let sends=0;
+    const dispatcher=new TelegramOutboxDispatcher({
+      outbox,sendMessage:async()=>{sends++;throw Error('should not send');},
+    });
+    await assert.rejects(dispatcher.dispatchOnce(),
+      e=>e.code==='OUTBOX_ACTION_NOT_APPROVED');
+    assert.equal(sends,0);
+    assert.equal(await dispatcher.dispatchOnce(),false);
+    const row=(await pool.query(
+      'SELECT state,attempts FROM kashbit_telegram_outbox WHERE update_id=$1',
+      [id])).rows[0];
+    assert.equal(row.state,'UNKNOWN');
+    assert.equal(row.attempts,1);
+  });
+
 });
