@@ -16,23 +16,6 @@ const lastStart = new Map();
 const START_COOLDOWN = 10000;
 const amountEntry = new Map();
 
-function nipKeyboard(rid, digits) {
-  const masked = digits.replace(/./g, '•');
-  const rows = [
-    [1, 2, 3],
-    [4, 5, 6],
-    [7, 8, 9],
-    ['C', 0, '←'],
-  ].map((row) =>
-    row.map((d) => Markup.button.callback(String(d), `nip:${d}:${rid}`))
-  );
-  rows.push([Markup.button.callback('← Menú', `menu:main:${rid}`)]);
-  return {
-    text: `<b>NIP de seguridad</b>\n${masked || '(vacío)'}\n\nIntroduce 4 dígitos.`,
-    markup: Markup.inlineKeyboard(rows),
-  };
-}
-
 function amountKeyboard(digits) {
   const display = digits ? (parseInt(digits, 10) / 100).toFixed(2) : '0.00';
   const rows = [
@@ -51,25 +34,6 @@ function amountKeyboard(digits) {
     text: `<b>¿Cuánto quieres cobrar?</b>\n\n$${display} MXN\n\nUsa el teclado. Ejemplo: 1000 = $10.00`,
     markup: Markup.inlineKeyboard(rows),
   };
-}
-
-function formatStatement(userId) {
-  const stmt = store.getStatement(userId);
-  const cards = store.getCards(userId);
-  let text = `<b>Estado de cuenta</b>\n\n`;
-  text += `Tarjetas guardadas: ${cards.length}\n`;
-  text += `Total cobrado: $${(stmt.charged / 100).toFixed(2)} MXN\n`;
-  text += `Total pagado: $${(stmt.paid / 100).toFixed(2)} MXN\n`;
-  text += `Transacciones: ${stmt.count}\n`;
-  if (stmt.recent.length > 0) {
-    text += `\n<b>Recientes:</b>\n`;
-    for (const tx of stmt.recent) {
-      const sign = tx.type === 'charge' ? '+' : '-';
-      const date = new Date(tx.date).toLocaleDateString('es-MX');
-      text += `${date} ${sign}$${(tx.amount / 100).toFixed(2)} ${tx.desc || ''}\n`;
-    }
-  }
-  return text;
 }
 
 async function iniciarHandler(ctx) {
@@ -161,8 +125,7 @@ bot.command('guardar_tarjeta', (ctx) => {
 });
 
 bot.command('estado_cuenta', (ctx) => {
-  const text = formatStatement(ctx.from.id);
-  ctx.reply(text, { parse_mode: 'HTML' });
+  ctx.reply('Estado de cuenta aún no disponible: pendiente de Financial Subledger de BusinessOS.');
 });
 
 bot.command('configuracion', (ctx) => {
@@ -189,40 +152,28 @@ bot.action(/menu:(\w+):(.+)/, async (ctx) => {
   const action = ctx.match[1];
   const rid = ctx.match[2];
   console.log('menu action', action, rid);
-  const req = store.getRequest(rid) || { amount: 0 };
+  const req = store.getRequest(rid);
   await ctx.answerCbQuery();
+  if (!req || String(req.payerId) !== String(ctx.from.id)) {
+    return ctx.editMessageText('Solicitud no encontrada o no autorizada.');
+  }
   let view;
   if (action === 'new') view = menus.newCardMenu(rid);
   else if (action === 'save') view = menus.saveCardMenu(rid);
-  else if (action === 'saved') view = menus.savedCardsMenu(rid, ctx.from.id);
+  else if (action === 'saved') {
+    await ctx.editMessageText('Las tarjetas guardadas estarán disponibles cuando CustomerVault y BusinessOS autoricen este flujo.');
+    return;
+  }
   else if (action === 'stmt') {
-    const text = formatStatement(ctx.from.id);
-    await ctx.editMessageText(text, { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('← Menú', `menu:main:${rid}`)]]) });
+    await ctx.editMessageText('Estado de cuenta aún no disponible: pendiente de Financial Subledger de BusinessOS.');
     return;
   }
   else if (action === 'cfg') view = menus.configMenu(rid);
   else if (action === 'reject') {
-    store.setState(rid, 'DECLINED');
-    await ctx.editMessageText('Pago rechazado.', { parse_mode: 'HTML' });
-    try {
-      await ctx.telegram.sendMessage(
-        req.requesterId,
-        `Pago rechazado.\n<code>${rid}</code>`,
-        { parse_mode: 'HTML' }
-      );
-    } catch (_) {}
+    await ctx.editMessageText('Rechazo de pago pendiente de autorización por BusinessOS. No se modificó la solicitud.');
     return;
   } else if (action === 'done') {
-    await ctx.editMessageText(
-      '<b>Tarjeta capturada</b>\nListo para confirmar.',
-      {
-        parse_mode: 'HTML',
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('✅ Confirmar pago', `confirm:yes:${rid}`)],
-          [Markup.button.callback('← Menú', `menu:main:${rid}`)],
-        ]),
-      }
-    );
+    await ctx.editMessageText('Confirmación de pago no disponible: la autorización financiera corresponde a BusinessOS.');
     return;
   } else {
     const amountText = ((req.amount || 0) / 100).toFixed(2) + ' MXN';
@@ -235,93 +186,18 @@ bot.action(/menu:(\w+):(.+)/, async (ctx) => {
   }
 });
 
-bot.action(/pay:card:(\d+):(.+)/, async (ctx) => {
-  const last4 = ctx.match[1];
-  const rid = ctx.match[2];
-  console.log('selected card', last4, rid);
+// F02 sandbox gate: until BusinessOS is certified, Telegram callbacks must
+// never manufacture PAID, ledger records, or PIN authorization locally.
+const gatedFinancialCallback = async (ctx) => {
   await ctx.answerCbQuery();
-  const req = store.getRequest(rid);
-  if (!req) return ctx.reply('Solicitud no encontrada.');
-  store.setState(rid, 'NEED_NIP');
-  store.setPinEntry(rid, '');
-  const k = nipKeyboard(rid, '');
-  await ctx.editMessageText(k.text, { parse_mode: 'HTML', ...k.markup });
-});
+  await ctx.editMessageText(
+    'Operación temporalmente no disponible. La autorización y el estado financiero corresponden a BusinessOS.'
+  );
+};
 
-bot.action(/nip:(.+):(.+)/, async (ctx) => {
-  const digit = ctx.match[1];
-  const rid = ctx.match[2];
-  await ctx.answerCbQuery();
-  let current = store.getPinEntry(rid);
-  if (digit === 'C') current = '';
-  else if (digit === '←') current = current.slice(0, -1);
-  else if (current.length < 4) current += digit;
-  store.setPinEntry(rid, current);
-  if (current.length === 4) {
-    const expected = store.getPin(ctx.from.id);
-    if (current === expected) {
-      const req = store.getRequest(rid);
-      store.setState(rid, 'PAID');
-      const amount = req ? req.amount : 0;
-      const amountText = (amount / 100).toFixed(2) + ' MXN';
-      const tracking = 'SIM-' + Date.now();
-      store.addTransaction(ctx.from.id, { type: 'payment', amount, desc: tracking });
-      if (req && req.requesterId) {
-        store.addTransaction(req.requesterId, { type: 'charge', amount, desc: tracking });
-      }
-      const msg =
-        `✅ <b>Pago completado</b>\n` +
-        `Solicitud: <code>${rid}</code>\n` +
-        (amountText ? `Importe: ${amountText}\n` : '') +
-        `Rastreo: <code>${tracking}</code>`;
-      await ctx.editMessageText(msg, { parse_mode: 'HTML' });
-      if (req && req.requesterId) {
-        try {
-          await ctx.telegram.sendMessage(req.requesterId, msg, { parse_mode: 'HTML' });
-        } catch (_) {}
-      }
-      return;
-    } else {
-      store.setPinEntry(rid, '');
-      const k = nipKeyboard(rid, '');
-      await ctx.editMessageText(
-        `<b>NIP incorrecto</b>\nIntenta de nuevo.\n\n` + k.text,
-        { parse_mode: 'HTML', ...k.markup }
-      );
-      return;
-    }
-  }
-  const k = nipKeyboard(rid, current);
-  try {
-    await ctx.editMessageText(k.text, { parse_mode: 'HTML', ...k.markup });
-  } catch (_) {}
-});
-
-bot.action(/confirm:yes:(.+)/, async (ctx) => {
-  const rid = ctx.match[1];
-  console.log('confirm', rid);
-  await ctx.answerCbQuery();
-  const req = store.getRequest(rid);
-  store.setState(rid, 'PAID');
-  const amount = req ? req.amount : 0;
-  const amountText = (amount / 100).toFixed(2) + ' MXN';
-  const tracking = 'SIM-' + Date.now();
-  store.addTransaction(ctx.from.id, { type: 'payment', amount, desc: tracking });
-  if (req && req.requesterId) {
-    store.addTransaction(req.requesterId, { type: 'charge', amount, desc: tracking });
-  }
-  const msg =
-    `✅ <b>Pago completado</b>\n` +
-    `Solicitud: <code>${rid}</code>\n` +
-    (amountText ? `Importe: ${amountText}\n` : '') +
-    `Rastreo: <code>${tracking}</code>`;
-  await ctx.editMessageText(msg, { parse_mode: 'HTML' });
-  if (req && req.requesterId) {
-    try {
-      await ctx.telegram.sendMessage(req.requesterId, msg, { parse_mode: 'HTML' });
-    } catch (_) {}
-  }
-});
+bot.action(/pay:card:(\d+):(.+)/, gatedFinancialCallback);
+bot.action(/nip:(.+):(.+)/, gatedFinancialCallback);
+bot.action(/confirm:yes:(.+)/, gatedFinancialCallback);
 
 bot.catch((err, ctx) => {
   console.error('Bot error', err);
