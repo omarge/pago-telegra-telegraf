@@ -1,5 +1,7 @@
 'use strict';
 
+const {ACTION:DEMO_LINK_ACTION,REDEEM_ACTION,REDEEM_MESSAGE,renderDemoLink,startToken}=require('./demoLinkPolicy');
+
 // F05e UAT-only command projection. Financial actions, legacy invites,
 // card/PIN operations and simulated PAID states are not permitted here.
 class UatCommandError extends Error {
@@ -38,10 +40,16 @@ function parseDemoAmount(raw) {
   return cents;
 }
 
-function createUatCommandHandler({outbox,demoInvites=null}={}) {
+function createUatCommandHandler({outbox,demoInvites=null,linksEnabled=false,telegramBotUsername=null}={}) {
   if(!outbox || typeof outbox.enqueueForClaim!=='function') {
     throw new UatCommandError('UAT_OUTBOX_NOT_CONFIGURED');
   }
+  if(linksEnabled && (!demoInvites || typeof demoInvites.redeemForClaim!=='function' ||
+     typeof demoInvites.authorizeLinkDelivery!=='function')) {
+    throw new UatCommandError('UAT_DEMO_LINKS_NOT_CONFIGURED');
+  }
+  if(linksEnabled){try{renderDemoLink(telegramBotUsername,'ki_'+'A'.repeat(43));}
+    catch(_){throw new UatCommandError('UAT_DEMO_LINKS_NOT_CONFIGURED');}}
   return async (update,claim)=>{
     const chatId=privateActor(update);
     if(!claim || claim.updateId!==update.update_id ||
@@ -54,6 +62,19 @@ function createUatCommandHandler({outbox,demoInvites=null}={}) {
         actionKey:OUTBOX_ACTION,message:{chatId,text:MESSAGE},
       });
     }
+    const redeemToken=startToken(update.message.text);
+    if(redeemToken) {
+      if(!linksEnabled)throw new UatCommandError('UAT_DEMO_LINKS_DISABLED');
+      await demoInvites.redeemForClaim({
+        updateId:claim.updateId,inboxLeaseId:claim.inboxLeaseId,
+        payerTelegramId:chatId,token:redeemToken,
+      });
+      return outbox.enqueueForClaim({
+        updateId:claim.updateId,inboxLeaseId:claim.inboxLeaseId,
+        actionKey:REDEEM_ACTION,
+        message:{chatId,text:REDEEM_MESSAGE},
+      });
+    }
     if(typeof update.message.text==='string' &&
        update.message.text.startsWith('/solicitar')) {
       const amountCents=parseDemoAmount(update.message.text);
@@ -63,14 +84,15 @@ function createUatCommandHandler({outbox,demoInvites=null}={}) {
       // No financial authority, customer mapping, payment intent, link sharing
       // or token emission to Telegram. A repeated inbox event maps to the
       // same immutable invitation and same static outbound intent.
-      await demoInvites.createForClaim({
+      const invite=await demoInvites.createForClaim({
         updateId:claim.updateId,inboxLeaseId:claim.inboxLeaseId,
         requesterTelegramId:chatId,amountCents,
       });
+      const actionKey=linksEnabled?DEMO_LINK_ACTION:DEMO_INVITE_ACTION;
+      const notice=linksEnabled?renderDemoLink(telegramBotUsername,invite.token):DEMO_INVITE_MESSAGE;
       return outbox.enqueueForClaim({
         updateId:claim.updateId,inboxLeaseId:claim.inboxLeaseId,
-        actionKey:DEMO_INVITE_ACTION,
-        message:{chatId,text:DEMO_INVITE_MESSAGE},
+        actionKey,message:{chatId,text:notice},
       });
     }
     throw new UatCommandError('UAT_COMMAND_NOT_MIGRATED');
