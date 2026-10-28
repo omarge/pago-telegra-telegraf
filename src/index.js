@@ -24,7 +24,7 @@ if (mode === 'durable-uat' && (
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) throw new Error('TELEGRAM_BOT_TOKEN_NOT_CONFIGURED');
 const PORT = process.env.FORM_PORT || 8765;
-startFormServer(PORT);
+const formServer = startFormServer(PORT);
 
 function getUpdates(offset) {
   return new Promise((resolve, reject) => {
@@ -71,7 +71,7 @@ async function runLegacyPolling() {
   }
 }
 
-async function runUatDurablePolling() {
+async function runUatDurablePolling(signal) {
   const { Pool } = require('pg');
   const pool = new Pool({
     connectionString: process.env.TELEGRAM_INBOX_DATABASE_URL,
@@ -85,7 +85,7 @@ async function runUatDurablePolling() {
       encryptionKeyHex: process.env.TELEGRAM_INBOX_KEY_HEX,
     });
     await runDurableTelegram({
-      pool, inbox, getUpdates,
+      pool, inbox, getUpdates, signal,
       handleUpdate: update => bot.handleUpdate(update),
     });
   } finally {
@@ -97,16 +97,34 @@ console.log('Starting KashBitPay Telegraf bot (delivery=' + mode + ')');
 if (mode === 'durable-uat') {
   // Only an explicitly acknowledged isolated UAT may enable this. PostgreSQL
   // migrations and credentials MUST be provisioned externally.
-  runUatDurablePolling().catch(() => {
-    console.error('DURABLE_TELEGRAM_DELIVERY_FAILED_CLOSED');
-    process.exit(1);
+  const stop = new AbortController();
+  const task = runUatDurablePolling(stop.signal);
+  let exiting = false;
+  const shutdown = () => {
+    if (exiting) return;
+    exiting = true;
+    stop.abort();
+    // Stop accepting HTTP requests while existing Telegram handler finishes.
+    formServer.close(() => {});
+    task.then(() => { process.exitCode = 0; }, () => {
+      console.error('DURABLE_TELEGRAM_SHUTDOWN_FAILED');
+      process.exitCode = 1;
+    });
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
+  task.catch(() => {
+    if (!exiting) {
+      console.error('DURABLE_TELEGRAM_DELIVERY_FAILED_CLOSED');
+      shutdown();
+      process.exitCode = 1;
+    }
   });
 } else {
   runLegacyPolling().catch(() => {
     console.error('TELEGRAM_LEGACY_POLL_TERMINATED');
     process.exit(1);
   });
+  process.once('SIGINT', () => process.exit(0));
+  process.once('SIGTERM', () => process.exit(0));
 }
-
-process.once('SIGINT', () => process.exit(0));
-process.once('SIGTERM', () => process.exit(0));
