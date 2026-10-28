@@ -1,6 +1,7 @@
 'use strict';
 
 const {OUTBOX_ACTION,MESSAGE,DEMO_INVITE_ACTION,DEMO_INVITE_MESSAGE} = require('./uatCommandHandler');
+const {ACTION:DEMO_LINK_ACTION,REDEEM_ACTION,REDEEM_MESSAGE,tokenFromDemoLink}=require('./demoLinkPolicy');
 
 // F05e UAT-only, no automatic retry for any ambiguous Telegram send.
 // The unique send claim is durably IN_FLIGHT before entering sendMessage().
@@ -8,7 +9,7 @@ class OutboxDispatchError extends Error {
   constructor(code) { super(code); this.name='OutboxDispatchError'; this.code=code; }
 }
 class TelegramOutboxDispatcher {
-  constructor({outbox,sendMessage}={}) {
+  constructor({outbox,sendMessage,demoInvites=null,telegramBotUsername=null}={}) {
     if (!outbox || typeof outbox.claimForSend !== 'function' ||
         typeof outbox.markSent !== 'function' ||
         typeof outbox.finishUnknown !== 'function' ||
@@ -17,6 +18,8 @@ class TelegramOutboxDispatcher {
     }
     this.outbox=outbox;
     this.sendMessage=sendMessage;
+    this.demoInvites=demoInvites;
+    this.telegramBotUsername=telegramBotUsername;
   }
 
   async dispatchOnce() {
@@ -24,13 +27,31 @@ class TelegramOutboxDispatcher {
     try { claimed=await this.outbox.claimForSend(); }
     catch (_) { throw new OutboxDispatchError('OUTBOX_CLAIM_FAILED'); }
     if (!claimed) return false;
-    if (!claimed.message ||
-        !Number.isSafeInteger(claimed.message.chatId) ||
-        claimed.message.chatId <= 0 ||
-        !((claimed.actionKey===OUTBOX_ACTION && claimed.message.text===MESSAGE) ||
-          (claimed.actionKey===DEMO_INVITE_ACTION && claimed.message.text===DEMO_INVITE_MESSAGE))) {
-      // The F05e sender is restricted to one exact, read-only text intent.
-      // A different outbox record cannot be sent through this pilot.
+    let permitted=false;
+    try {
+      const message=claimed.message;
+      if(message && Number.isSafeInteger(message.chatId) && message.chatId>0) {
+        const fixed=(
+          (claimed.actionKey===OUTBOX_ACTION && message.text===MESSAGE) ||
+          (claimed.actionKey===DEMO_INVITE_ACTION && message.text===DEMO_INVITE_MESSAGE) ||
+          (claimed.actionKey===REDEEM_ACTION && message.text===REDEEM_MESSAGE)
+        );
+        if(fixed) permitted=true;
+        else if(claimed.actionKey===DEMO_LINK_ACTION &&
+                this.demoInvites &&
+                typeof this.demoInvites.authorizeLinkDelivery==='function') {
+          const token=tokenFromDemoLink(message.text,this.telegramBotUsername);
+          permitted=await this.demoInvites.authorizeLinkDelivery({
+            sourceUpdateId:claimed.updateId,
+            requesterTelegramId:message.chatId,
+            token,
+          })===true;
+        }
+      }
+    } catch (_) { permitted=false; }
+    if(!permitted) {
+      // A bad/expired/bound-to-someone-else bearer link is sealed and never
+      // handed to Telegram. The one-shot dispatch is already IN_FLIGHT.
       try {
         await this.outbox.finishUnknown(
           claimed.updateId,claimed.actionKey,claimed.dispatchId);
@@ -68,8 +89,8 @@ class TelegramOutboxDispatcher {
   }
 }
 
-async function runOutboxDispatcher({outbox,sendMessage,signal}={}) {
-  const dispatcher=new TelegramOutboxDispatcher({outbox,sendMessage});
+async function runOutboxDispatcher({outbox,sendMessage,signal,demoInvites=null,telegramBotUsername=null}={}) {
+  const dispatcher=new TelegramOutboxDispatcher({outbox,sendMessage,demoInvites,telegramBotUsername});
   while(!signal?.aborted) {
     const delivered=await dispatcher.dispatchOnce();
     if (!delivered) {
