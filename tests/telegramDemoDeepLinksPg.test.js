@@ -126,6 +126,14 @@ describe('F05e-02B PostgreSQL 18 Telegram deep-link issue/redeem with no charges
     assert.equal(await invites.authorizeLinkDelivery({
       sourceUpdateId:sourceId,requesterTelegramId:12345,token,
     }),true);
+    for(const forged of [
+      {sourceUpdateId:sourceId,requesterTelegramId:12345,token:'ki_'+'B'.repeat(43)},
+      {sourceUpdateId:sourceId,requesterTelegramId:99999,token},
+      {sourceUpdateId:sourceId+999,requesterTelegramId:12345,token},
+    ]) {
+      await assert.rejects(invites.authorizeLinkDelivery(forged),
+        e=>e.code==='DEMO_LINK_NOT_AUTHORIZED');
+    }
 
     const original=(await pool.query(
       'SELECT token_digest FROM kashbit_telegram_demo_invites')).rows[0];
