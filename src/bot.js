@@ -14,6 +14,7 @@ const bot = new Telegraf(config.token, {
 
 const lastStart = new Map();
 const START_COOLDOWN = 10000;
+const amountEntry = new Map();
 
 function nipKeyboard(rid, digits) {
   const masked = digits.replace(/./g, '•');
@@ -28,6 +29,26 @@ function nipKeyboard(rid, digits) {
   rows.push([Markup.button.callback('← Menú', `menu:main:${rid}`)]);
   return {
     text: `<b>NIP de seguridad</b>\n${masked || '(vacío)'}\n\nIntroduce 4 dígitos.`,
+    markup: Markup.inlineKeyboard(rows),
+  };
+}
+
+function amountKeyboard(digits) {
+  const display = digits ? (parseInt(digits, 10) / 100).toFixed(2) : '0.00';
+  const rows = [
+    [1, 2, 3],
+    [4, 5, 6],
+    [7, 8, 9],
+    ['C', 0, '←'],
+  ].map((row) =>
+    row.map((d) => Markup.button.callback(String(d), `amt:${d}`))
+  );
+  rows.push([
+    Markup.button.callback('✓ Confirmar', 'amt:ok'),
+    Markup.button.callback('✗ Cancelar', 'amt:cancel'),
+  ]);
+  return {
+    text: `<b>¿Cuánto quieres cobrar?</b>\n\n$${display} MXN\n\nUsa el teclado. Ejemplo: 1000 = $10.00`,
     markup: Markup.inlineKeyboard(rows),
   };
 }
@@ -86,13 +107,50 @@ async function iniciarHandler(ctx) {
     } catch (_) {}
     return;
   }
-  store.conv.set(ctx.chat.id, { step: 'amount' });
-  console.log('asking amount to', userId);
-  await ctx.reply('¿Cuánto quieres cobrar?\nEnvía el monto en pesos (ejemplo: 10 para $10.00 MXN)');
+  amountEntry.set(userId, '');
+  const k = amountKeyboard('');
+  await ctx.reply(k.text, { parse_mode: 'HTML', ...k.markup });
 }
 
 bot.start(iniciarHandler);
 bot.command('iniciar', iniciarHandler);
+
+bot.action(/amt:(.+)/, async (ctx) => {
+  const action = ctx.match[1];
+  const userId = ctx.from.id;
+  await ctx.answerCbQuery();
+  let digits = amountEntry.get(userId) || '';
+  if (action === 'cancel') {
+    amountEntry.delete(userId);
+    await ctx.editMessageText('Cancelado.');
+    return;
+  }
+  if (action === 'ok') {
+    if (!digits || parseInt(digits, 10) <= 0) {
+      await ctx.answerCbQuery('Ingresa un monto');
+      return;
+    }
+    const amount = parseInt(digits, 10);
+    amountEntry.delete(userId);
+    const token = store.createInvite(userId, amount);
+    const link = `https://t.me/${ctx.botInfo.username}?start=${token}`;
+    const display = (amount / 100).toFixed(2);
+    console.log('invite created', link, 'amount', amount);
+    await ctx.editMessageText(
+      `<b>Enlace generado</b>\n\nMonto: $${display} MXN\n\n${link}\n\nEnvíaselo al pagador.`,
+      { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.url('Abrir enlace', link)]]) }
+    );
+    return;
+  }
+  if (action === 'C') digits = '';
+  else if (action === '←') digits = digits.slice(0, -1);
+  else if (digits.length < 8) digits += action;
+  amountEntry.set(userId, digits);
+  const k = amountKeyboard(digits);
+  try {
+    await ctx.editMessageText(k.text, { parse_mode: 'HTML', ...k.markup });
+  } catch (_) {}
+});
 
 bot.command('guardar_tarjeta', (ctx) => {
   const formBase = (process.env.FORM_PUBLIC_URL || 'https://pagos.kashbit.bond').replace(/\/$/, '');
@@ -124,35 +182,7 @@ bot.command('configuracion', (ctx) => {
 
 bot.on('text', async (ctx) => {
   const text = (ctx.message.text || '').trim();
-  console.log('[text] received:', JSON.stringify(text), 'chat', ctx.chat.id, 'update', ctx.update.update_id);
   if (text.startsWith('/')) return;
-  const state = store.conv.get(ctx.chat.id);
-  console.log('[text] state:', state);
-  if (!state || state.step !== 'amount') return;
-  console.log('amount text', text, 'from', ctx.from.id);
-  const pesos = parseFloat(text);
-  if (!pesos || pesos <= 0) {
-    return ctx.reply('Monto inválido. Envía un número (10 = $10.00).');
-  }
-  const amount = Math.round(pesos * 100);
-  const token = store.createInvite(ctx.from.id, amount);
-  store.conv.delete(ctx.chat.id);
-  const link = `https://t.me/${ctx.botInfo.username}?start=${token}`;
-  console.log('invite created', link, 'amount cents', amount);
-  const msg =
-    `Enlace generado.\nEnvíaselo al pagador:\n\n${link}\n\nEl pagador debe abrirlo y tocar Start.`;
-  try {
-    const sent = await ctx.reply(msg, Markup.inlineKeyboard([[Markup.button.url('Abrir enlace', link)]]));
-    console.log('[text] reply sent, message_id=', sent.message_id);
-  } catch (e) {
-    console.error('[text] reply failed:', e.message);
-    try {
-      await ctx.telegram.sendMessage(ctx.chat.id, msg);
-      console.log('[text] fallback sent');
-    } catch (e2) {
-      console.error('[text] fallback failed:', e2.message);
-    }
-  }
 });
 
 bot.action(/menu:(\w+):(.+)/, async (ctx) => {
