@@ -1,6 +1,6 @@
 'use strict';
 
-const {OUTBOX_ACTION,MESSAGE} = require('./uatCommandHandler');
+const {OUTBOX_ACTION,MESSAGE,DEMO_INVITE_ACTION,DEMO_INVITE_MESSAGE} = require('./uatCommandHandler');
 
 // F05e UAT-only, no automatic retry for any ambiguous Telegram send.
 // The unique send claim is durably IN_FLIGHT before entering sendMessage().
@@ -24,10 +24,11 @@ class TelegramOutboxDispatcher {
     try { claimed=await this.outbox.claimForSend(); }
     catch (_) { throw new OutboxDispatchError('OUTBOX_CLAIM_FAILED'); }
     if (!claimed) return false;
-    if (claimed.actionKey !== OUTBOX_ACTION ||
-        !claimed.message || claimed.message.text !== MESSAGE ||
+    if (!claimed.message ||
         !Number.isSafeInteger(claimed.message.chatId) ||
-        claimed.message.chatId <= 0) {
+        claimed.message.chatId <= 0 ||
+        !((claimed.actionKey===OUTBOX_ACTION && claimed.message.text===MESSAGE) ||
+          (claimed.actionKey===DEMO_INVITE_ACTION && claimed.message.text===DEMO_INVITE_MESSAGE))) {
       // The F05e sender is restricted to one exact, read-only text intent.
       // A different outbox record cannot be sent through this pilot.
       try {
