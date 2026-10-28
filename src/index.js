@@ -6,6 +6,9 @@ const bot = require('./bot');
 const { startFormServer } = require('./formServer');
 const { processTelegramUpdatesInOrder } = require('./telegram/processUpdates');
 const { PostgresTelegramInbox } = require('./telegram/postgresInbox');
+const { PostgresTelegramOutbox } = require('./telegram/postgresOutbox');
+const { createUatCommandHandler } = require('./telegram/uatCommandHandler');
+const { runOutboxDispatcher } = require('./telegram/outboxDispatcher');
 const { runDurableTelegram } = require('./telegram/durableTransport');
 
 const mode = process.env.TELEGRAM_DELIVERY_MODE || 'legacy';
@@ -21,6 +24,12 @@ if (mode === 'durable-uat' && (
   throw new Error('DURABLE_TELEGRAM_UAT_NOT_AUTHORIZED');
 }
 
+const senderEnabled = process.env.TELEGRAM_OUTBOX_SENDER_ENABLED === 'true';
+if (senderEnabled && (
+  mode !== 'durable-uat' ||
+  process.env.KASHBIT_OUTBOX_UAT_ACK !== 'YES_ISOLATED_UAT_TELEGRAM_SEND')) {
+  throw new Error('UAT_TELEGRAM_OUTBOUND_NOT_AUTHORIZED');
+}
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) throw new Error('TELEGRAM_BOT_TOKEN_NOT_CONFIGURED');
 const PORT = process.env.FORM_PORT || 8765;
@@ -84,10 +93,39 @@ async function runUatDurablePolling(signal) {
       enabled: true, pool,
       encryptionKeyHex: process.env.TELEGRAM_INBOX_KEY_HEX,
     });
-    await runDurableTelegram({
-      pool, inbox, getUpdates, signal,
-      handleUpdate: update => bot.handleUpdate(update),
+    const outbox = new PostgresTelegramOutbox({
+      enabled: true, pool,
+      encryptionKeyHex: process.env.TELEGRAM_INBOX_KEY_HEX,
     });
+    const handleUpdate = createUatCommandHandler({outbox});
+    if (!senderEnabled) {
+      await runDurableTelegram({pool, inbox, getUpdates, signal, handleUpdate});
+    } else {
+      // Only a separately acknowledged isolated UAT may send actual Telegram
+      // messages; never enable automatically from mere inbox activation.
+      const halt = new AbortController();
+      const stop = () => halt.abort();
+      signal?.addEventListener('abort',stop,{once:true});
+      if (signal?.aborted) stop();
+      try {
+        const tasks = [
+          runDurableTelegram({
+            pool,inbox,getUpdates,handleUpdate,signal:halt.signal,
+          }).catch(e=>{stop();throw e;}),
+          runOutboxDispatcher({
+            outbox,
+            sendMessage:(chatId,text)=>bot.telegram.sendMessage(chatId,text),
+            signal:halt.signal,
+          }).catch(e=>{stop();throw e;}),
+        ];
+        const outcomes = await Promise.allSettled(tasks);
+        const failed = outcomes.find(x=>x.status==='rejected');
+        if (failed) throw failed.reason;
+      } finally {
+        stop();
+        signal?.removeEventListener('abort',stop);
+      }
+    }
   } finally {
     await pool.end();
   }
