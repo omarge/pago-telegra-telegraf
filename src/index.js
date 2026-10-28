@@ -10,6 +10,8 @@ startFormServer(PORT);
 
 console.log('Starting KashBitPay Telegraf bot...');
 
+const processed = new Set();
+
 (async () => {
   let offset = 0;
   try {
@@ -28,6 +30,15 @@ console.log('Starting KashBitPay Telegraf bot...');
     try {
       const updates = await bot.telegram.getUpdates(offset, 30, 100, ['message', 'callback_query']);
       for (const u of updates) {
+        if (processed.has(u.update_id)) {
+          console.log('skip duplicate', u.update_id);
+          continue;
+        }
+        processed.add(u.update_id);
+        if (processed.size > 1000) {
+          const first = processed.values().next().value;
+          processed.delete(first);
+        }
         offset = u.update_id + 1;
         bot.handleUpdate(u);
       }
