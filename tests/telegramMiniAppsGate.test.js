@@ -26,6 +26,11 @@ describe('F01 Express Mini App identity gate + BusinessOS NO_GO', () => {
     else process.env.TELEGRAM_BOT_TOKEN = oldToken;
 
     const server = app.listen(0, '127.0.0.1');
+    await new Promise((resolve, reject) => {
+      if (server.listening) return resolve();
+      server.once('listening', resolve);
+      server.once('error', reject);
+    });
     try {
       const baseUrl = 'http://127.0.0.1:' + server.address().port;
       const paths = ['/pay/charge', '/cards/enroll', '/nip/change'];
