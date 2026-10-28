@@ -197,8 +197,10 @@ describe('F05d PostgreSQL 18 outbox idempotency and ambiguity',{
     const still=(await pool.query('SELECT state FROM kashbit_telegram_outbox '+
       'WHERE update_id=$1',[c.updateId])).rows[0];
     assert.equal(still.state,'IN_FLIGHT');
-    await pool.query("UPDATE kashbit_telegram_outbox SET started_at=now()-interval '20 minutes' "+
-      'WHERE update_id=$1',[c.updateId]); // must be rejected by monotonic trigger
+    await assert.rejects(pool.query(
+      "UPDATE kashbit_telegram_outbox SET started_at=now()-interval '20 minutes' "+
+      'WHERE update_id=$1',[c.updateId]),e=>e.code==='P0001');
+    assert.equal(await restarted.claimForSend(),null);
   });
 
   it('operator sealing marks stale ambiguous attempt UNKNOWN without sending',async()=>{
