@@ -7,6 +7,7 @@ const { startFormServer } = require('./formServer');
 const { processTelegramUpdatesInOrder } = require('./telegram/processUpdates');
 const { PostgresTelegramInbox } = require('./telegram/postgresInbox');
 const { PostgresTelegramOutbox } = require('./telegram/postgresOutbox');
+const { PostgresDemoInviteAuthority } = require('./telegram/postgresDemoInvites');
 const { createUatCommandHandler } = require('./telegram/uatCommandHandler');
 const { runOutboxDispatcher } = require('./telegram/outboxDispatcher');
 const { runDurableTelegram } = require('./telegram/durableTransport');
@@ -24,6 +25,11 @@ if (mode === 'durable-uat' && (
   throw new Error('DURABLE_TELEGRAM_UAT_NOT_AUTHORIZED');
 }
 
+const demoInvitesEnabled = process.env.TELEGRAM_DEMO_INVITES_ENABLED === 'true';
+if (demoInvitesEnabled && (
+  mode !== 'durable-uat' || !process.env.TELEGRAM_DEMO_INVITE_KEY_HEX)) {
+  throw new Error('UAT_DEMO_INVITES_NOT_AUTHORIZED');
+}
 const senderEnabled = process.env.TELEGRAM_OUTBOX_SENDER_ENABLED === 'true';
 if (senderEnabled && (
   mode !== 'durable-uat' ||
@@ -97,7 +103,13 @@ async function runUatDurablePolling(signal) {
       enabled: true, pool,
       encryptionKeyHex: process.env.TELEGRAM_INBOX_KEY_HEX,
     });
-    const handleUpdate = createUatCommandHandler({outbox});
+    const demoInvites = demoInvitesEnabled
+      ? new PostgresDemoInviteAuthority({
+          enabled:true,pool,
+          tokenKeyHex:process.env.TELEGRAM_DEMO_INVITE_KEY_HEX,
+        })
+      : null;
+    const handleUpdate = createUatCommandHandler({outbox,demoInvites});
     if (!senderEnabled) {
       await runDurableTelegram({pool, inbox, getUpdates, signal, handleUpdate});
     } else {
