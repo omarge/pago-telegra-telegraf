@@ -11,6 +11,7 @@ const conv = new Map();
 const cards = new Map();
 const pins = new Map();
 const pinEntry = new Map();
+const transactions = new Map();
 
 function encrypt(text) {
   const iv = crypto.randomBytes(16);
@@ -46,7 +47,10 @@ function load() {
     if (data.pins) {
       for (const [k, v] of Object.entries(data.pins)) pins.set(k, v);
     }
-    console.log('Store loaded:', cards.size, 'users with cards');
+    if (data.transactions) {
+      for (const [k, v] of Object.entries(data.transactions)) transactions.set(k, v);
+    }
+    console.log('Store loaded:', cards.size, 'users,', transactions.size, 'users with tx');
   } catch (e) {
     console.error('Store load error:', e.message);
   }
@@ -59,6 +63,7 @@ function save() {
     const data = {
       cards: Object.fromEntries(cards),
       pins: Object.fromEntries(pins),
+      transactions: Object.fromEntries(transactions),
     };
     const enc = encrypt(JSON.stringify(data));
     fs.writeFileSync(DATA_FILE, enc);
@@ -139,6 +144,31 @@ function getPinEntry(rid) {
   return pinEntry.get(rid) || '';
 }
 
+function addTransaction(userId, tx) {
+  const key = String(userId);
+  const list = transactions.get(key) || [];
+  list.push({ ...tx, date: Date.now() });
+  if (list.length > 50) list.shift();
+  transactions.set(key, list);
+  save();
+}
+
+function getTransactions(userId) {
+  return transactions.get(String(userId)) || [];
+}
+
+function getStatement(userId) {
+  const key = String(userId);
+  const txs = transactions.get(key) || [];
+  let charged = 0;
+  let paid = 0;
+  for (const tx of txs) {
+    if (tx.type === 'charge') charged += tx.amount;
+    else if (tx.type === 'payment') paid += tx.amount;
+  }
+  return { charged, paid, count: txs.length, recent: txs.slice(-10).reverse() };
+}
+
 module.exports = {
   conv,
   createInvite,
@@ -152,4 +182,7 @@ module.exports = {
   getPin,
   setPinEntry,
   getPinEntry,
+  addTransaction,
+  getTransactions,
+  getStatement,
 };
