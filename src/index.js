@@ -26,6 +26,7 @@ if (mode === 'durable-uat' && (
 }
 
 const demoInvitesEnabled = process.env.TELEGRAM_DEMO_INVITES_ENABLED === 'true';
+const demoLinksEnabled = process.env.TELEGRAM_DEMO_LINKS_ENABLED === 'true';
 if (demoInvitesEnabled && (
   mode !== 'durable-uat' || !process.env.TELEGRAM_DEMO_INVITE_KEY_HEX)) {
   throw new Error('UAT_DEMO_INVITES_NOT_AUTHORIZED');
@@ -35,6 +36,12 @@ if (senderEnabled && (
   mode !== 'durable-uat' ||
   process.env.KASHBIT_OUTBOX_UAT_ACK !== 'YES_ISOLATED_UAT_TELEGRAM_SEND')) {
   throw new Error('UAT_TELEGRAM_OUTBOUND_NOT_AUTHORIZED');
+}
+if(demoLinksEnabled && (
+  mode!=='durable-uat' || !demoInvitesEnabled || !senderEnabled ||
+  process.env.KASHBIT_DEMO_LINKS_UAT_ACK!=='YES_DEMO_LINKS_NO_PAYMENT' ||
+  !/^[A-Za-z][A-Za-z0-9_]{4,31}bot$/i.test(process.env.TELEGRAM_UAT_BOT_USERNAME||''))) {
+  throw new Error('UAT_DEMO_LINKS_NOT_AUTHORIZED');
 }
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) throw new Error('TELEGRAM_BOT_TOKEN_NOT_CONFIGURED');
@@ -109,7 +116,10 @@ async function runUatDurablePolling(signal) {
           tokenKeyHex:process.env.TELEGRAM_DEMO_INVITE_KEY_HEX,
         })
       : null;
-    const handleUpdate = createUatCommandHandler({outbox,demoInvites});
+    const handleUpdate = createUatCommandHandler({
+      outbox,demoInvites,linksEnabled:demoLinksEnabled,
+      telegramBotUsername:process.env.TELEGRAM_UAT_BOT_USERNAME,
+    });
     if (!senderEnabled) {
       await runDurableTelegram({pool, inbox, getUpdates, signal, handleUpdate});
     } else {
@@ -125,7 +135,8 @@ async function runUatDurablePolling(signal) {
             pool,inbox,getUpdates,handleUpdate,signal:halt.signal,
           }).catch(e=>{stop();throw e;}),
           runOutboxDispatcher({
-            outbox,
+            outbox,demoInvites,
+            telegramBotUsername:process.env.TELEGRAM_UAT_BOT_USERNAME,
             sendMessage:(chatId,text)=>bot.telegram.sendMessage(chatId,text),
             signal:halt.signal,
           }).catch(e=>{stop();throw e;}),
