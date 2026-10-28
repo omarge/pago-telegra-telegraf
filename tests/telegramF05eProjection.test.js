@@ -4,7 +4,7 @@ const {describe,it,before,after,beforeEach}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const {randomUUID,randomBytes}=require('node:crypto');
+const {randomUUID,randomBytes,randomInt}=require('node:crypto');
 const {PostgresTelegramInbox}=require('../src/telegram/postgresInbox');
 const {PostgresTelegramOutbox}=require('../src/telegram/postgresOutbox');
 const {DurableTelegramTransport}=require('../src/telegram/durableTransport');
@@ -17,7 +17,7 @@ const update=(id,text='/estado_cuenta',chatId=5500123)=>({
     id:chatId,first_name:'CI',is_bot:false},
     chat:{id:chatId,type:'private'},date:1761680000,text},
 });
-const next=()=>Number('7'+randomUUID().replaceAll('-','').slice(0,10));
+const next=()=>randomInt(700000000,1700000000);
 
 describe('F05e Telegram informational command projection contracts',()=>{
   it('fails closed with no configured outbox or mismatched inbound lease',async()=>{
