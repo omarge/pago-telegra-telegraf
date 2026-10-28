@@ -3,9 +3,8 @@ dns.setDefaultResultOrder('ipv4first');
 
 const https = require('https');
 const bot = require('./bot');
-const { startFormServer, setBot } = require('./formServer');
+const { startFormServer } = require('./formServer');
 
-setBot(bot);
 const PORT = process.env.FORM_PORT || 8765;
 startFormServer(PORT);
 

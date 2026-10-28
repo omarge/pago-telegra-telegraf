@@ -1,147 +1,51 @@
 const express = require('express');
-const https = require('https');
-const store = require('./store');
+const { requireTelegramMiniAppIdentity } = require('./telegram/miniAppIdentity');
 
+// F01: these are PUBLIC Openpay.js browser configuration values only.
 const MERCHANT = process.env.OPENPAY_MERCHANT_ID || '';
-const PRIVATE_KEY = process.env.OPENPAY_PRIVATE_KEY || '';
 const PUBLIC_KEY = process.env.OPENPAY_PUBLIC_KEY || '';
 
-let botInstance = null;
-
-function setBot(bot) {
-  botInstance = bot;
-}
-
-function startFormServer(port = 8765) {
+function createFormApp() {
   const app = express();
-  app.use(express.json());
+  app.disable('x-powered-by');
+  app.use(express.json({ limit: '16kb' }));
 
-  app.get('/pay/one-time', (req, res) => {
+  app.get('/pay/one-time', (_req, res) => {
     res.set('Content-Type', 'text/html; charset=utf-8');
     res.send(oneTimeForm());
   });
 
-  app.get('/cards/enroll', (req, res) => {
+  app.get('/cards/enroll', (_req, res) => {
     res.set('Content-Type', 'text/html; charset=utf-8');
     res.send(enrollForm());
   });
 
-  app.get('/nip/change', (req, res) => {
+  app.get('/nip/change', (_req, res) => {
     res.set('Content-Type', 'text/html; charset=utf-8');
     res.send(nipChangeForm());
   });
 
-  app.post('/pay/charge', async (req, res) => {
-    const { token_id, amount = 1000, holder, request_id, payer_id } = req.body || {};
-    console.log('[charge] token_id=', token_id, 'rid=', request_id);
-    if (!token_id || !MERCHANT || !PRIVATE_KEY) {
-      return res.status(400).json({ error: 'missing token or openpay config' });
-    }
-    try {
-      const result = await openpayCharge(token_id, amount, holder);
-      console.log('[charge] openpay result', result.id, result.status);
-      if (botInstance && request_id && payer_id) {
-        await notifyPaid(botInstance, request_id, payer_id, result.id, amount);
-      }
-      res.json({ ok: true, charge_id: result.id, status: result.status });
-    } catch (e) {
-      console.error('[charge] error', e.message);
-      res.status(502).json({ error: e.message });
-    }
+  // Fail closed until BusinessOS Payment, CustomerVault and Security Engine
+  // have authorized endpoints and independently validated business identities.
+  // Every state-changing Mini App endpoint verifies signed Telegram initData.
+  const verifyIdentity = requireTelegramMiniAppIdentity({
+    botToken: process.env.TELEGRAM_BOT_TOKEN,
   });
-
-  app.post('/cards/enroll', async (req, res) => {
-    const { token_id, holder, last4, user_id } = req.body || {};
-    console.log('[enroll] token_id=', token_id, 'user=', user_id);
-    if (!token_id || !user_id) return res.status(400).json({ error: 'missing token or user' });
-    const card = { last4: last4 || '????', brand: 'Card', tokenId: token_id, holder };
-    store.addCard(user_id, card);
-    console.log('[enroll] saved', last4, 'for', user_id);
-    res.json({ ok: true, saved: true, last4: card.last4 });
-  });
-
-  app.post('/nip/change', async (req, res) => {
-    const { user_id, old_pin, new_pin } = req.body || {};
-    console.log('[nip] change for', user_id, 'old=', old_pin, 'new=', new_pin);
-    if (!user_id || !old_pin || !new_pin) return res.status(400).json({ error: 'missing fields' });
-    const current = store.getPin(user_id);
-    console.log('[nip] current pin for', user_id, '=', current);
-    if (old_pin !== current) return res.status(403).json({ error: 'NIP actual incorrecto' });
-    if (!/^\d{4}$/.test(new_pin)) return res.status(400).json({ error: 'NIP debe ser 4 dígitos' });
-    store.setPin(user_id, new_pin);
-    console.log('[nip] updated for', user_id);
-    res.json({ ok: true });
-  });
+  for (const route of ['/pay/charge', '/cards/enroll', '/nip/change']) {
+    app.post(route, verifyIdentity, (_req, res) => {
+      res.set('Cache-Control', 'no-store');
+      res.status(503).json({ error: 'BUSINESSOS_INTEGRATION_NOT_YET_ENABLED' });
+    });
+  }
 
   app.get('/healthz', (_req, res) => res.send('ok'));
+  return app;
+}
 
+function startFormServer(port = 8765) {
+  const app = createFormApp();
   app.listen(port, '0.0.0.0', () => {
-    console.log(`Form server listening on 0.0.0.0:${port}/pay/one-time`);
-  });
-}
-
-async function notifyPaid(bot, rid, payerId, chargeId, amount) {
-  const req = store.getRequest(rid);
-  const amountText = (amount / 100).toFixed(2) + ' MXN';
-  const msg =
-    `✅ <b>Pago completado</b>\n` +
-    `Solicitud: <code>${rid}</code>\n` +
-    `Importe: ${amountText}\n` +
-    `Rastreo Openpay: <code>${chargeId}</code>`;
-  try {
-    await bot.telegram.sendMessage(payerId, msg, { parse_mode: 'HTML' });
-  } catch (_) {}
-  if (req && req.requesterId) {
-    try {
-      await bot.telegram.sendMessage(req.requesterId, msg, { parse_mode: 'HTML' });
-    } catch (_) {}
-  }
-  store.setState(rid, 'PAID');
-}
-
-function openpayCharge(tokenId, amountCents, holder) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({
-      source_id: tokenId,
-      method: 'card',
-      amount: amountCents / 100,
-      currency: 'MXN',
-      description: 'KashBitPay Sandbox',
-      device_session_id: 'kashbit-demo',
-      customer: {
-        name: (holder || 'Cliente').split(' ')[0] || 'Cliente',
-        last_name: (holder || 'Prueba').split(' ').slice(1).join(' ') || 'Prueba',
-        email: 'test@kashbit.bond',
-        phone_number: '5555555555',
-      },
-    });
-    const auth = Buffer.from(PRIVATE_KEY + ':').toString('base64');
-    const opts = {
-      hostname: 'sandbox-api.openpay.mx',
-      path: `/v1/${MERCHANT}/charges`,
-      method: 'POST',
-      headers: {
-        Authorization: 'Basic ' + auth,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-      },
-    };
-    const req = https.request(opts, (r) => {
-      let data = '';
-      r.on('data', (c) => (data += c));
-      r.on('end', () => {
-        try {
-          const j = JSON.parse(data);
-          if (r.statusCode >= 200 && r.statusCode < 300) resolve(j);
-          else reject(new Error(j.description || j.error_code || 'openpay ' + r.statusCode));
-        } catch (e) {
-          reject(new Error('bad response'));
-        }
-      });
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
+    console.log('Form server listening on 0.0.0.0:' + port + '/pay/one-time');
   });
 }
 
@@ -181,7 +85,7 @@ function say(m){ status.textContent = m; console.log('[form]', m); }
 const tg = window.Telegram && window.Telegram.WebApp;
 const params = new URLSearchParams(location.search);
 const requestId = params.get('rid') || '';
-const payerId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : '';
+const miniAppInitData = tg && tg.initData ? tg.initData : '';
 if (tg) { tg.ready(); say('Telegram listo.'); }
 else { say('Abre desde Telegram.'); }
 if (window.OpenPay) {
@@ -192,6 +96,7 @@ if (window.OpenPay) {
 } else { say('Openpay.js no cargó.'); }
 form.addEventListener('submit', (e) => {
   e.preventDefault();
+  if (!miniAppInitData) { say('Abre esta microaplicación desde Telegram.'); return; }
   say('Tokenizando…');
   const holder = document.getElementById('holder').value;
   const pan = document.getElementById('pan').value;
@@ -211,8 +116,8 @@ form.addEventListener('submit', (e) => {
     try {
       const r = await fetch('/pay/charge', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token_id: tokenId, amount: 1000, holder, request_id: requestId, payer_id: payerId })
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': miniAppInitData },
+        body: JSON.stringify({ token_id: tokenId, holder, request_id: requestId })
       });
       const j = await r.json();
       if (j.ok) {
@@ -259,7 +164,7 @@ const form = document.getElementById('enroll');
 const root = document.querySelector('main');
 function say(m){ status.textContent = m; }
 const tg = window.Telegram && window.Telegram.WebApp;
-const userId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? String(tg.initDataUnsafe.user.id) : '';
+const miniAppInitData = tg && tg.initData ? tg.initData : '';
 if (tg) { tg.ready(); say('Telegram listo.'); }
 if (window.OpenPay) {
   OpenPay.setId(root.dataset.mid);
@@ -269,6 +174,7 @@ if (window.OpenPay) {
 }
 form.addEventListener('submit', (e) => {
   e.preventDefault();
+  if (!miniAppInitData) { say('Abre esta microaplicación desde Telegram.'); return; }
   say('Tokenizando…');
   const holder = document.getElementById('holder').value;
   const pan = document.getElementById('pan').value;
@@ -288,8 +194,8 @@ form.addEventListener('submit', (e) => {
     say('Guardando…');
     const r = await fetch('/cards/enroll', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token_id: tokenId, holder, last4, user_id: userId })
+      headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': miniAppInitData },
+      body: JSON.stringify({ token_id: tokenId, holder, last4 })
     });
     const j = await r.json();
     if (j.ok) {
@@ -327,29 +233,27 @@ button{margin-top:20px;padding:14px;width:100%;border:0;border-radius:8px;backgr
 <script>
 const status = document.getElementById('status');
 const form = document.getElementById('nipform');
-function say(m){ status.textContent = m; console.log('[nip]', m); }
+function say(m){ status.textContent = m; }
 const tg = window.Telegram && window.Telegram.WebApp;
-const userId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? String(tg.initDataUnsafe.user.id) : '';
-if (tg) { tg.ready(); say('Telegram listo. user=' + userId); }
+const miniAppInitData = tg && tg.initData ? tg.initData : '';
+if (tg) { tg.ready(); say('Telegram listo.'); }
 else { say('Abre desde Telegram.'); }
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const oldP = (document.getElementById('old').value || '').replace(/\D/g, '');
   const n1 = (document.getElementById('n1').value || '').replace(/\D/g, '');
   const n2 = (document.getElementById('n2').value || '').replace(/\D/g, '');
-  console.log('[nip] old=', oldP, 'n1=', n1, 'n2=', n2, 'user=', userId);
   if (n1 !== n2) { say('Los NIP nuevos no coinciden.'); return; }
   if (n1.length !== 4) { say('El NIP debe ser 4 dígitos. Recibido: ' + n1.length); return; }
-  if (!userId) { say('No se detectó usuario de Telegram.'); return; }
+  if (!miniAppInitData) { say('Abre esta microaplicación desde Telegram.'); return; }
   say('Verificando…');
   try {
     const r = await fetch('/nip/change', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, old_pin: oldP, new_pin: n1 })
+      headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': miniAppInitData },
+      body: JSON.stringify({ old_pin: oldP, new_pin: n1 })
     });
     const j = await r.json();
-    console.log('[nip] response', j);
     if (j.ok) {
       say('NIP actualizado. Cerrando…');
       if (tg) setTimeout(() => tg.close(), 800);
@@ -361,4 +265,4 @@ form.addEventListener('submit', async (e) => {
 </script></main></body></html>`;
 }
 
-module.exports = { startFormServer, setBot };
+module.exports = { createFormApp, startFormServer };
