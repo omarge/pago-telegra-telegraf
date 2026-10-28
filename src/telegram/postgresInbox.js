@@ -100,6 +100,13 @@ class PostgresTelegramInbox {
     if (!Number.isSafeInteger(leaseSeconds) || leaseSeconds < 1 || leaseSeconds > 300) {
       throw new TelegramInboxError('INBOX_LEASE_INVALID');
     }
+    // Exhausted crashed workers must not block all later updates forever.
+    await this.execute(
+      "UPDATE kashbit_telegram_inbox SET state='QUARANTINED', " +
+      'lease_id=NULL, leased_until=NULL ' +
+      "WHERE state='PROCESSING' AND attempts >= 12 AND leased_until < now()",
+      []
+    );
     const lease = crypto.randomUUID();
     const r = await this.execute(
       'WITH candidate AS (SELECT i.update_id FROM kashbit_telegram_inbox AS i ' +
@@ -132,6 +139,23 @@ class PostgresTelegramInbox {
       await this.quarantine(id, lease);
       throw new TelegramInboxError('INBOX_PAYLOAD_UNTRUSTED');
     }
+  }
+
+  async renew(updateId, leaseId, leaseSeconds = 90) {
+    this.guard();
+    this.checkLease(updateId, leaseId);
+    if (!Number.isSafeInteger(leaseSeconds) || leaseSeconds < 3 ||
+        leaseSeconds > 300) {
+      throw new TelegramInboxError('INBOX_LEASE_INVALID');
+    }
+    const r = await this.execute(
+      'UPDATE kashbit_telegram_inbox SET ' +
+      "leased_until=now()+($3::integer * interval '1 second') " +
+      "WHERE update_id=$1 AND lease_id=$2::uuid AND state='PROCESSING' " +
+      'AND leased_until > now() RETURNING update_id',
+      [updateId, leaseId, leaseSeconds]
+    );
+    return r.rows.length === 1;
   }
 
   async ack(updateId, leaseId) {
