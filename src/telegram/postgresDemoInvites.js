@@ -102,6 +102,29 @@ class PostgresDemoInviteAuthority {
     });
   }
 
+  async authorizeLinkDelivery({sourceUpdateId,requesterTelegramId,token}={}) {
+    this.guard();
+    if(!int(sourceUpdateId,true) || !int(requesterTelegramId) ||
+       typeof token!=='string' || !TOKEN.test(token)) {
+      throw new DemoInviteError('DEMO_INVITE_INPUT_INVALID');
+    }
+    const digest=digestToken(this.key,token);
+    // Recheck the owner, live expiry and absence of redemption immediately
+    // before a one-shot Telegram send. The redeem operation validates expiry
+    // again independently even if this read races the delivery.
+    return this.inTransaction(async client=>{
+      const r=await client.query(
+        'SELECT i.invite_id FROM kashbit_telegram_demo_invites AS i '+
+        'WHERE i.source_update_id=$1 AND i.requester_telegram_id=$2 '+
+        'AND i.token_digest=$3 AND i.expires_at>now() AND NOT EXISTS '+
+        '(SELECT 1 FROM kashbit_telegram_demo_claims AS c '+
+        'WHERE c.invite_id=i.invite_id)',
+        [sourceUpdateId,requesterTelegramId,digest]);
+      if(r.rows.length!==1)throw new DemoInviteError('DEMO_LINK_NOT_AUTHORIZED');
+      return true;
+    });
+  }
+
   async redeemForClaim({updateId,inboxLeaseId,payerTelegramId,token}={}) {
     this.guard();
     validateClaim({updateId,inboxLeaseId});
