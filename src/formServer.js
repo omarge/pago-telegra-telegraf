@@ -16,20 +16,11 @@ function startFormServer(port = 8765) {
   const app = express();
   app.use(express.json());
 
-  app.get('/pay/one-time', (req, res) => {
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    res.send(oneTimeForm());
-  });
-
-  app.get('/cards/enroll', (req, res) => {
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    res.send(enrollForm());
-  });
-
-  app.get('/nip/change', (req, res) => {
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    res.send(nipChangeForm());
-  });
+  // Do not render a legacy credential-capture form without authenticated
+  // Telegram initData and a server-side session bound to the payment request.
+  for (const route of ['/pay/one-time', '/cards/enroll', '/nip/change']) {
+    app.get(route, (_req,res) => res.status(503).send('Formulario temporalmente no disponible: autenticación requerida.'));
+  }
 
   // Security hold: legacy unauthenticated financial and enrollment routes must
   // never make PSP calls, store raw tokens or accept caller-selected identity.
