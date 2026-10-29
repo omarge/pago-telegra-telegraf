@@ -73,3 +73,17 @@ test('PostgreSQL: originless authorized operation cannot stage a financial hando
  const q=await pool.query("SELECT count(*)::int AS n FROM telegram_channel.financial_handoff WHERE tenant_id=$1 AND operation_id='operation04'",[tenant]);
  assert.equal(q.rows[0].n,0);
 });
+
+test('F14 PostgreSQL: origin identities immutable across inbox, consent, handoff',async()=>{
+ const msg=await gate.admitOrigin({tenant,channel:'TELEGRAM',actorId:'origin-owner',messageId:'f14-origin',payload:{test:'F14'}});
+ const op='f14origin01';
+ await pool.query("INSERT INTO telegram_channel.payment_consent (tenant_id,operation_id,actor_id,origin_key,card_reference,amount_minor,currency,expires_at,state) VALUES($1,$2,'origin-owner',$3,'token-reference',500,'MXN',now()+interval '5 minutes','AUTHORIZED')",[tenant,op,msg.operationKey]);
+ assert.equal((await gate.stageHeldFinancialHandoff({tenant,operationId:op,actorId:'origin-owner'})).state,'HELD');
+ for(const [table,field,idField,id] of [
+  ['message_inbox','origin_key','message_id','f14-origin'],
+  ['payment_consent','origin_key','operation_id',op],
+  ['financial_handoff','origin_key','operation_id',op]
+ ]){
+  await assert.rejects(pool.query('UPDATE telegram_channel.'+table+' SET '+field+'=$1 WHERE tenant_id=$2 AND '+idField+'=$3',['msgv1_'+'b'.repeat(64),tenant,id]),/IMMUTABLE_.*ORIGIN/);
+ }
+});
