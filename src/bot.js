@@ -242,10 +242,9 @@ bot.action(/pay:card:(\d+):(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
   const req = store.getRequest(rid);
   if (!req) return ctx.reply('Solicitud no encontrada.');
-  store.setState(rid, 'NEED_NIP');
-  store.setPinEntry(rid, '');
-  const k = nipKeyboard(rid, '');
-  await ctx.editMessageText(k.text, { parse_mode: 'HTML', ...k.markup });
+  // Do not display a keypad that transmits PIN digits as callback_data.
+  // This flow remains disabled until authenticated HTTPS consent is wired.
+  await ctx.editMessageText('Para continuar, utiliza la microaplicación HTTPS autenticada. El cobro permanece pendiente y no se envió a Openpay.');
 });
 
 // Legacy PIN callbacks are NOT an authenticated HTTPS PIN form.
