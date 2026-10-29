@@ -26,6 +26,10 @@ function startFormServer(port = 8765, {webSessions=null, paymentGate=null, pinSe
   // Read-only authentication exchange. No PIN data, financial authorization,
   // session issuance, card token, or PSP call is performed here.
   app.post('/pay/auth/telegram', async (req,res) => {
+    res.set('Cache-Control','no-store');
+    const expectedOrigin=typeof publicOrigin==='string'?publicOrigin.replace(/\/$/,''):null;
+    if(!expectedOrigin||req.get('origin')!==expectedOrigin||!/^application\/json(?:;|$)/i.test(req.get('content-type')||''))
+      return res.status(403).json({code:'ORIGIN_DENIED'});
     try {
       const verified=verifyTelegramInitData(req.body?.initData,process.env.TELEGRAM_BOT_TOKEN);
       if (!webSessions || typeof tenant!=='string' || !tenant) {
