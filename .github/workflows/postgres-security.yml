@@ -5,7 +5,7 @@ on:
       - 'src/pg*.js'
       - 'src/messageOrigin.js'
       - 'db/telegram-security.sql'
-      - 'tests/postgres.integration.test.js'
+      - 'integration/postgres.test.js'
       - '.github/workflows/postgres-security.yml'
   workflow_dispatch:
 jobs:
@@ -34,4 +34,4 @@ jobs:
           node-version: '24'
       - run: npm install --no-audit --no-fund
       - run: psql -h localhost -U securitytest -d telegraf_security -v ON_ERROR_STOP=1 -f db/telegram-security.sql
-      - run: node --test tests/postgres.integration.test.js
+      - run: node --test integration/postgres.test.js
