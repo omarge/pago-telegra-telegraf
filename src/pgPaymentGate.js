@@ -60,6 +60,12 @@ function createPgPaymentGate(pool){
    return {state:'HELD',operationId};
   });
  }
+ async function readHeldHandoff({tenant,operationId}={}) {
+  if(typeof tenant!=='string'||!tenant||typeof operationId!=='string'||!/^[A-Za-z0-9_-]{8,128}$/.test(operationId))return null;
+  const q=await pool.query("SELECT operation_id,amount_minor,currency,status,created_at FROM telegram_channel.financial_handoff WHERE tenant_id=$1 AND operation_id=$2 AND status='HELD'",
+    [tenant,operationId]);
+  return q.rowCount===1?q.rows[0]:null;
+ }
  async function consumeConsent({tenant,operationId,actorId}){
   return transaction(async c=>{
    const q=await c.query("UPDATE telegram_channel.payment_consent SET state='CONSUMED',consumed_at=now() WHERE tenant_id=$1 AND operation_id=$2 AND actor_id=$3 AND state='AUTHORIZED' AND expires_at>now() RETURNING operation_id,card_reference,amount_minor,currency",
@@ -67,6 +73,6 @@ function createPgPaymentGate(pool){
    return q.rowCount===1?{state:'CONSUMED',operation:q.rows[0]}:{state:'NOT_AUTHORIZED'};
   });
  }
- return Object.freeze({admitOrigin,previewConsent,confirmWithVerifiedPin,stageHeldFinancialHandoff,consumeConsent,isFinancialAuthority:false});
+ return Object.freeze({admitOrigin,previewConsent,confirmWithVerifiedPin,stageHeldFinancialHandoff,readHeldHandoff,consumeConsent,isFinancialAuthority:false});
 }
 module.exports={createPgPaymentGate};
