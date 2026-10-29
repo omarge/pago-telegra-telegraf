@@ -5,12 +5,14 @@ const crypto=require('node:crypto');
 const fields=['tenantId','operationId','amountMinor','currency','originKey','occurredAt'];
 function canonical(value){
  if(!value||typeof value!=='object'||Array.isArray(value))throw Error('HANDOFF_INVALID');
+ if(Object.keys(value).length!==fields.length || Object.keys(value).some(k=>!fields.includes(k)))throw Error('HANDOFF_INVALID');
  const values=fields.map(k=>value[k]);
  if(values.some(v=>typeof v!=='string'||v.length===0||v.length>256))throw Error('HANDOFF_INVALID');
  if(!/^[A-Za-z0-9_-]{8,128}$/.test(value.operationId)||!/^[A-Z]{3}$/.test(value.currency)||
     !/^[1-9][0-9]{0,15}$/.test(value.amountMinor)||
     !/^msgv1_[a-f0-9]{64}$/.test(value.originKey)||
     !/^\d{4}-\d{2}-\d{2}T/.test(value.occurredAt)||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value.occurredAt)||
     !Number.isFinite(Date.parse(value.occurredAt)))throw Error('HANDOFF_INVALID');
  return 'KASHBIT-TELEGRAM-HELD-V1\n'+values.map((v,i)=>fields[i]+':'+Buffer.byteLength(v,'utf8')+':'+v).join('\n');
 }
@@ -20,7 +22,8 @@ function signHandoff(payload,secret){
  return Object.freeze({version:1,kind:'HELD',payload:{...payload},mac});
 }
 function verifyHandoff(envelope,secret){
- if(!envelope||envelope.version!==1||envelope.kind!=='HELD'||typeof envelope.mac!=='string'||
+ if(!envelope||Object.keys(envelope).length!==4||Object.keys(envelope).some(k=>!['version','kind','payload','mac'].includes(k))||
+    envelope.version!==1||envelope.kind!=='HELD'||typeof envelope.mac!=='string'||
     !/^[a-f0-9]{64}$/.test(envelope.mac))return false;
  try{
   const signed=signHandoff(envelope.payload,secret);
