@@ -11,16 +11,19 @@ test('HTTP Telegram auth accepts signed identity, rejects unsigned and does not 
  const secret=crypto.createHmac('sha256','WebAppData').update(token).digest();
  const hash=crypto.createHmac('sha256',secret).update(check).digest('hex');
  const initData=new URLSearchParams({...values,hash}).toString();
- const server=startFormServer(0,{tenant:'T1',webSessions:{issue:async()=>({token:'a'.repeat(43),expiresIn:300})}});
+ const server=startFormServer(0,{tenant:'T1',publicOrigin:'https://pay.example.test',webSessions:{issue:async()=>({token:'a'.repeat(43),expiresIn:300})}});
  try{
   if(!server.listening)await once(server,'listening');
   const base='http://127.0.0.1:'+server.address().port;
-  const post=data=>fetch(base+'/pay/auth/telegram',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(data)});
+  const post=data=>fetch(base+'/pay/auth/telegram',{method:'POST',headers:{'content-type':'application/json',origin:'https://pay.example.test'},body:JSON.stringify(data)});
   const valid=await post({initData});
   assert.equal(valid.status,200);
   assert.equal((await valid.json()).authenticated,true);
   assert.match(valid.headers.get('set-cookie'),/HttpOnly/);
   assert.match(valid.headers.get('set-cookie'),/Secure/);
+  const forged=await fetch(base+'/pay/auth/telegram',{method:'POST',headers:{'content-type':'application/json',origin:'https://evil.example'},body:JSON.stringify({initData})});
+  assert.equal(forged.status,403);
+  assert.equal(forged.headers.get('set-cookie'),null);
   const invalid=await post({initData:'user=987654'});
   assert.equal(invalid.status,401);
   const charge=await fetch(base+'/pay/charge',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
