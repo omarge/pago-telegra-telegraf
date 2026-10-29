@@ -30,4 +30,17 @@ CREATE TABLE IF NOT EXISTS telegram_channel.web_session (
 );
 CREATE INDEX IF NOT EXISTS web_session_active_actor
  ON telegram_channel.web_session (tenant_id,actor_id,expires_at);
+CREATE TABLE IF NOT EXISTS telegram_channel.financial_handoff (
+ tenant_id text NOT NULL,
+ operation_id text NOT NULL,
+ actor_id text NOT NULL,
+ card_reference text NOT NULL,
+ amount_minor bigint NOT NULL CHECK(amount_minor > 0),
+ currency char(3) NOT NULL,
+ status text NOT NULL DEFAULT 'HELD' CHECK (status = 'HELD'),
+ created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY (tenant_id, operation_id),
+ FOREIGN KEY (tenant_id, operation_id)
+ REFERENCES telegram_channel.payment_consent(tenant_id, operation_id)
+);
 COMMIT;
