@@ -33,5 +33,5 @@ jobs:
         with:
           node-version: '24'
       - run: npm install --no-audit --no-fund
-      - run: psql -h localhost -U securitytest -d telegraf_security -v ON_ERROR_STOP=1 -f db/telegram-security.sql
+      - run: psql -h localhost -U securitytest -d telegraf_security -v ON_ERROR_STOP=1 -f db/f13-lab-reset.sql
       - run: node --test integration/postgres.test.js
