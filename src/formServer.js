@@ -46,8 +46,8 @@ function startFormServer(port = 8765, {webSessions=null, paymentGate=null, pinSe
   // Exact Origin and JSON content-type are mandatory for state-changing requests.
   app.post('/pay/consent/verify-pin', async (req,res) => {
     res.set('Cache-Control','no-store');
-    const expected=typeof publicOrigin==='string'?publicOrigin.replace(/\\/$/,''):null;
-    if(!expected || req.get('origin')!==expected || !/^application\\/json(?:;|$)/i.test(req.get('content-type')||''))
+    const expected=typeof publicOrigin==='string'?publicOrigin.replace(/\/$/,''):null;
+    if(!expected || req.get('origin')!==expected || !/^application\/json(?:;|$)/i.test(req.get('content-type')||''))
       return res.status(403).json({code:'ORIGIN_DENIED'});
     if(!webSessions||!paymentGate||!pinService||!tenant)
       return res.status(503).json({code:'SECURE_CONSENT_UNAVAILABLE'});
@@ -58,7 +58,7 @@ function startFormServer(port = 8765, {webSessions=null, paymentGate=null, pinSe
       if(!session)return res.status(401).json({code:'SESSION_INVALID'});
       const operationId=req.body?.operationId, pin=req.body?.pin;
       if(typeof operationId!=='string'||!/^[-_A-Za-z0-9]{8,128}$/.test(operationId)||
-         typeof pin!=='string'||!/^\\d{4}$/.test(pin))
+         typeof pin!=='string'||!/^\d{4}$/.test(pin))
         return res.status(400).json({code:'CONSENT_INPUT_INVALID'});
       const outcome=await paymentGate.confirmWithVerifiedPin({
         tenant,operationId,actorId:session.actorId,pin,
