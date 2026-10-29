@@ -13,7 +13,7 @@ function setBot(bot) {
   botInstance = bot;
 }
 
-function startFormServer(port = 8765, {webSessions=null, tenant=process.env.KASHBIT_TENANT_ID} = {}) {
+function startFormServer(port = 8765, {webSessions=null, paymentGate=null, pinService=null, tenant=process.env.KASHBIT_TENANT_ID, publicOrigin=process.env.FORM_PUBLIC_ORIGIN} = {}) {
   const app = express();
   app.use(express.json());
 
@@ -39,6 +39,36 @@ function startFormServer(port = 8765, {webSessions=null, tenant=process.env.KASH
       return res.json({authenticated:true,expiresIn:session.expiresIn});
     } catch (_) {
       return res.status(401).json({code:'TELEGRAM_AUTH_INVALID'});
+    }
+  });
+
+  // Session identity comes ONLY from the server-issued cookie, never request body.
+  // Exact Origin and JSON content-type are mandatory for state-changing requests.
+  app.post('/pay/consent/verify-pin', async (req,res) => {
+    res.set('Cache-Control','no-store');
+    const expected=typeof publicOrigin==='string'?publicOrigin.replace(/\\/$/,''):null;
+    if(!expected || req.get('origin')!==expected || !/^application\\/json(?:;|$)/i.test(req.get('content-type')||''))
+      return res.status(403).json({code:'ORIGIN_DENIED'});
+    if(!webSessions||!paymentGate||!pinService||!tenant)
+      return res.status(503).json({code:'SECURE_CONSENT_UNAVAILABLE'});
+    const cookie=(req.get('cookie')||'').split(';').map(s=>s.trim()).find(s=>s.startsWith('kashbit_tg_session='));
+    const token=cookie?cookie.slice('kashbit_tg_session='.length):null;
+    try {
+      const session=await webSessions.requireSession({tenant,token});
+      if(!session)return res.status(401).json({code:'SESSION_INVALID'});
+      const operationId=req.body?.operationId, pin=req.body?.pin;
+      if(typeof operationId!=='string'||!/^[-_A-Za-z0-9]{8,128}$/.test(operationId)||
+         typeof pin!=='string'||!/^\\d{4}$/.test(pin))
+        return res.status(400).json({code:'CONSENT_INPUT_INVALID'});
+      const outcome=await paymentGate.confirmWithVerifiedPin({
+        tenant,operationId,actorId:session.actorId,pin,
+        verifyPin:args=>pinService.verify(args)
+      });
+      return res.status(outcome.state==='AUTHORIZED'?200:403).json({
+        state:outcome.state
+      });
+    } catch (_) {
+      return res.status(503).json({code:'CONSENT_UNAVAILABLE'});
     }
   });
 
