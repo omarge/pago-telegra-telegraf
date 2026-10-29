@@ -46,6 +46,21 @@ function startFormServer(port = 8765, {webSessions=null, paymentGate=null, pinSe
     }
   });
 
+  // Read-only payment preview: no card token, account identifier or NIP returned.
+  app.get('/pay/consent/preview/:operationId', async (req,res) => {
+    res.set('Cache-Control','no-store');
+    if(!webSessions||!paymentGate||!tenant)return res.status(503).json({code:'PREVIEW_UNAVAILABLE'});
+    const cookie=(req.get('cookie')||'').split(';').map(v=>v.trim()).find(v=>v.startsWith('kashbit_tg_session='));
+    try {
+      const session=await webSessions.requireSession({tenant,token:cookie?.slice('kashbit_tg_session='.length)});
+      if(!session)return res.status(401).json({code:'SESSION_INVALID'});
+      const operation=await paymentGate.previewConsent({tenant,actorId:session.actorId,operationId:req.params.operationId});
+      if(!operation)return res.status(404).json({code:'OPERATION_NOT_AVAILABLE'});
+      return res.json({operationId:operation.operation_id,amountMinor:operation.amount_minor,
+        currency:operation.currency,expiresAt:operation.expires_at});
+    }catch(_){return res.status(503).json({code:'PREVIEW_UNAVAILABLE'});}
+  });
+
   // Session identity comes ONLY from the server-issued cookie, never request body.
   // Exact Origin and JSON content-type are mandatory for state-changing requests.
   app.post('/pay/consent/verify-pin', async (req,res) => {
