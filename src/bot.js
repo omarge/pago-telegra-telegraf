@@ -248,79 +248,16 @@ bot.action(/pay:card:(\d+):(.+)/, async (ctx) => {
   await ctx.editMessageText(k.text, { parse_mode: 'HTML', ...k.markup });
 });
 
+// Legacy PIN callbacks are NOT an authenticated HTTPS PIN form.
 bot.action(/nip:(.+):(.+)/, async (ctx) => {
-  const digit = ctx.match[1];
-  const rid = ctx.match[2];
-  await ctx.answerCbQuery();
-  let current = store.getPinEntry(rid);
-  if (digit === 'C') current = '';
-  else if (digit === '←') current = current.slice(0, -1);
-  else if (current.length < 4) current += digit;
-  store.setPinEntry(rid, current);
-  if (current.length === 4) {
-    const expected = store.getPin(ctx.from.id);
-    if (current === expected) {
-      const req = store.getRequest(rid);
-      store.setState(rid, 'PAID');
-      const amount = req ? req.amount : 0;
-      const amountText = (amount / 100).toFixed(2) + ' MXN';
-      const tracking = 'SIM-' + Date.now();
-      store.addTransaction(ctx.from.id, { type: 'payment', amount, desc: tracking });
-      if (req && req.requesterId) {
-        store.addTransaction(req.requesterId, { type: 'charge', amount, desc: tracking });
-      }
-      const msg =
-        `✅ <b>Pago completado</b>\n` +
-        `Solicitud: <code>${rid}</code>\n` +
-        (amountText ? `Importe: ${amountText}\n` : '') +
-        `Rastreo: <code>${tracking}</code>`;
-      await ctx.editMessageText(msg, { parse_mode: 'HTML' });
-      if (req && req.requesterId) {
-        try {
-          await ctx.telegram.sendMessage(req.requesterId, msg, { parse_mode: 'HTML' });
-        } catch (_) {}
-      }
-      return;
-    } else {
-      store.setPinEntry(rid, '');
-      const k = nipKeyboard(rid, '');
-      await ctx.editMessageText(
-        `<b>NIP incorrecto</b>\nIntenta de nuevo.\n\n` + k.text,
-        { parse_mode: 'HTML', ...k.markup }
-      );
-      return;
-    }
-  }
-  const k = nipKeyboard(rid, current);
-  try {
-    await ctx.editMessageText(k.text, { parse_mode: 'HTML', ...k.markup });
-  } catch (_) {}
+  await ctx.answerCbQuery('Captura segura requerida', { show_alert: true });
+  await ctx.editMessageText('El NIP solo se captura en la microaplicación HTTPS autenticada. No se realizó ningún cargo.');
 });
 
+// A confirmation click cannot produce a financial receipt.
 bot.action(/confirm:yes:(.+)/, async (ctx) => {
-  const rid = ctx.match[1];
-  console.log('confirm', rid);
-  await ctx.answerCbQuery();
-  const req = store.getRequest(rid);
-  store.setState(rid, 'PAID');
-  const amount = req ? req.amount : 0;
-  const amountText = (amount / 100).toFixed(2) + ' MXN';
-  const tracking = 'SIM-' + Date.now();
-  store.addTransaction(ctx.from.id, { type: 'payment', amount, desc: tracking });
-  if (req && req.requesterId) {
-    store.addTransaction(req.requesterId, { type: 'charge', amount, desc: tracking });
-  }
-  const msg =
-    `✅ <b>Pago completado</b>\n` +
-    `Solicitud: <code>${rid}</code>\n` +
-    (amountText ? `Importe: ${amountText}\n` : '') +
-    `Rastreo: <code>${tracking}</code>`;
-  await ctx.editMessageText(msg, { parse_mode: 'HTML' });
-  if (req && req.requesterId) {
-    try {
-      await ctx.telegram.sendMessage(req.requesterId, msg, { parse_mode: 'HTML' });
-    } catch (_) {}
-  }
+  await ctx.answerCbQuery('Confirmación no disponible', { show_alert: true });
+  await ctx.editMessageText('Pago pendiente: requiere autorización segura y resultado verificable de BusinessOS. No se realizó ningún cargo.');
 });
 
 bot.catch((err, ctx) => {
