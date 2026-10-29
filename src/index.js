@@ -7,7 +7,16 @@ const { startFormServer, setBot } = require('./formServer');
 
 setBot(bot);
 const PORT = process.env.FORM_PORT || 8765;
-startFormServer(PORT);
+// The auth endpoint is disabled unless both durable PostgreSQL and tenant
+// configuration exist. Database migrations are applied separately.
+let webSessions=null;
+if (process.env.DATABASE_URL && process.env.KASHBIT_TENANT_ID) {
+  const {Pool}=require('pg');
+  const {createPgWebSession}=require('./pgWebSession');
+  const pool=new Pool({connectionString:process.env.DATABASE_URL,max:5});
+  webSessions=createPgWebSession({pool});
+}
+startFormServer(PORT,{webSessions,tenant:process.env.KASHBIT_TENANT_ID});
 
 console.log('Starting KashBitPay Telegraf bot...');
 
