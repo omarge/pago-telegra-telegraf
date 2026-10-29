@@ -9,11 +9,13 @@ CREATE TABLE IF NOT EXISTS telegram_channel.message_inbox (
 );
 CREATE TABLE IF NOT EXISTS telegram_channel.payment_consent (
  tenant_id text NOT NULL, operation_id text NOT NULL, actor_id text NOT NULL,
+ origin_key text,
  card_reference text NOT NULL, amount_minor bigint NOT NULL CHECK(amount_minor>0),
  currency char(3) NOT NULL, expires_at timestamptz NOT NULL,
  state text NOT NULL DEFAULT 'PENDING' CHECK(state IN ('PENDING','AUTHORIZED','CONSUMED')),
  authorized_at timestamptz, consumed_at timestamptz,
- PRIMARY KEY(tenant_id,operation_id)
+ PRIMARY KEY(tenant_id,operation_id),
+ FOREIGN KEY(tenant_id,origin_key) REFERENCES telegram_channel.message_inbox(tenant_id,origin_key)
 );
 CREATE TABLE IF NOT EXISTS telegram_channel.pin_verifier (
  tenant_id text NOT NULL, actor_id text NOT NULL,
@@ -34,6 +36,7 @@ CREATE TABLE IF NOT EXISTS telegram_channel.financial_handoff (
  tenant_id text NOT NULL,
  operation_id text NOT NULL,
  actor_id text NOT NULL,
+ origin_key text NOT NULL,
  card_reference text NOT NULL,
  amount_minor bigint NOT NULL CHECK(amount_minor > 0),
  currency char(3) NOT NULL,
@@ -41,6 +44,7 @@ CREATE TABLE IF NOT EXISTS telegram_channel.financial_handoff (
  created_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY (tenant_id, operation_id),
  FOREIGN KEY (tenant_id, operation_id)
- REFERENCES telegram_channel.payment_consent(tenant_id, operation_id)
+ REFERENCES telegram_channel.payment_consent(tenant_id, operation_id),
+ FOREIGN KEY(tenant_id, origin_key) REFERENCES telegram_channel.message_inbox(tenant_id,origin_key)
 );
 COMMIT;
