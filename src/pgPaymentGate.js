@@ -51,18 +51,18 @@ function createPgPaymentGate(pool){
   if(!tenant||!actorId||typeof operationId!=='string'||!/^[A-Za-z0-9_-]{8,128}$/.test(operationId))
    return {state:'INVALID'};
   return transaction(async c=>{
-   const q=await c.query("UPDATE telegram_channel.payment_consent SET state='CONSUMED',consumed_at=now() WHERE tenant_id=$1 AND operation_id=$2 AND actor_id=$3 AND state='AUTHORIZED' AND expires_at>now() RETURNING operation_id,card_reference,amount_minor,currency",
+   const q=await c.query("UPDATE telegram_channel.payment_consent SET state='CONSUMED',consumed_at=now() WHERE tenant_id=$1 AND operation_id=$2 AND actor_id=$3 AND state='AUTHORIZED' AND origin_key IS NOT NULL AND expires_at>now() RETURNING operation_id,origin_key,card_reference,amount_minor,currency",
     [tenant,operationId,actorId]);
    if(q.rowCount!==1)return {state:'NOT_AUTHORIZED'};
    const x=q.rows[0];
-   await c.query("INSERT INTO telegram_channel.financial_handoff (tenant_id,operation_id,actor_id,card_reference,amount_minor,currency,status) VALUES($1,$2,$3,$4,$5,$6,'HELD')",
-    [tenant,operationId,actorId,x.card_reference,x.amount_minor,x.currency]);
+   await c.query("INSERT INTO telegram_channel.financial_handoff (tenant_id,operation_id,actor_id,origin_key,card_reference,amount_minor,currency,status) VALUES($1,$2,$3,$4,$5,$6,$7,'HELD')",
+    [tenant,operationId,actorId,x.origin_key,x.card_reference,x.amount_minor,x.currency]);
    return {state:'HELD',operationId};
   });
  }
  async function readHeldHandoff({tenant,operationId}={}) {
   if(typeof tenant!=='string'||!tenant||typeof operationId!=='string'||!/^[A-Za-z0-9_-]{8,128}$/.test(operationId))return null;
-  const q=await pool.query("SELECT operation_id,amount_minor,currency,status,created_at FROM telegram_channel.financial_handoff WHERE tenant_id=$1 AND operation_id=$2 AND status='HELD'",
+  const q=await pool.query("SELECT operation_id,origin_key,amount_minor,currency,status,created_at FROM telegram_channel.financial_handoff WHERE tenant_id=$1 AND operation_id=$2 AND status='HELD'",
     [tenant,operationId]);
   return q.rowCount===1?q.rows[0]:null;
  }
