@@ -20,6 +20,13 @@ function createPgPaymentGate(pool){
    return {state:'DUPLICATE',operationKey:key};
   });
  }
+ async function previewConsent({tenant,operationId,actorId}={}) {
+  if(!tenant||!actorId||typeof operationId!=='string'||!/^[A-Za-z0-9_-]{8,128}$/.test(operationId))
+   return null;
+  const q=await pool.query("SELECT operation_id,card_reference,amount_minor,currency,expires_at FROM telegram_channel.payment_consent WHERE tenant_id=$1 AND operation_id=$2 AND actor_id=$3 AND state='PENDING' AND expires_at>now()",
+   [tenant,operationId,actorId]);
+  return q.rowCount===1?q.rows[0]:null;
+ }
  async function confirmWithVerifiedPin({tenant,operationId,actorId,pin,verifyPin}={}) {
   if (typeof verifyPin!=='function' || typeof tenant!=='string' || !tenant ||
       typeof operationId!=='string' || !operationId || typeof actorId!=='string' || !actorId)
@@ -47,6 +54,6 @@ function createPgPaymentGate(pool){
    return q.rowCount===1?{state:'CONSUMED',operation:q.rows[0]}:{state:'NOT_AUTHORIZED'};
   });
  }
- return Object.freeze({admitOrigin,confirmWithVerifiedPin,consumeConsent,isFinancialAuthority:false});
+ return Object.freeze({admitOrigin,previewConsent,confirmWithVerifiedPin,consumeConsent,isFinancialAuthority:false});
 }
 module.exports={createPgPaymentGate};
