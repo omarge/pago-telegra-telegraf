@@ -13,7 +13,7 @@ function setBot(bot) {
   botInstance = bot;
 }
 
-function startFormServer(port = 8765) {
+function startFormServer(port = 8765, {webSessions=null, tenant=process.env.KASHBIT_TENANT_ID} = {}) {
   const app = express();
   app.use(express.json());
 
@@ -25,10 +25,18 @@ function startFormServer(port = 8765) {
 
   // Read-only authentication exchange. No PIN data, financial authorization,
   // session issuance, card token, or PSP call is performed here.
-  app.post('/pay/auth/telegram', (req,res) => {
+  app.post('/pay/auth/telegram', async (req,res) => {
     try {
       const verified=verifyTelegramInitData(req.body?.initData,process.env.TELEGRAM_BOT_TOKEN);
-      return res.json({authenticated:true,actorId:verified.actorId});
+      if (!webSessions || typeof tenant!=='string' || !tenant) {
+        return res.status(503).json({code:'SESSION_SERVICE_UNAVAILABLE'});
+      }
+      const session=await webSessions.issue({tenant,actorId:verified.actorId});
+      res.set('Cache-Control','no-store');
+      res.cookie('kashbit_tg_session',session.token,{
+        httpOnly:true,secure:true,sameSite:'strict',path:'/pay',maxAge:session.expiresIn*1000
+      });
+      return res.json({authenticated:true,expiresIn:session.expiresIn});
     } catch (_) {
       return res.status(401).json({code:'TELEGRAM_AUTH_INVALID'});
     }
