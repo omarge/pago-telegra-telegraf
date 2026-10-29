@@ -49,4 +49,34 @@ CREATE TABLE IF NOT EXISTS telegram_channel.financial_handoff (
  REFERENCES telegram_channel.payment_consent(tenant_id, operation_id),
  FOREIGN KEY(tenant_id, operation_id, actor_id, origin_key) REFERENCES telegram_channel.payment_consent(tenant_id,operation_id,actor_id,origin_key)
 );
+CREATE OR REPLACE FUNCTION telegram_channel.prevent_origin_rewrite()
+RETURNS trigger LANGUAGE plpgsql AS $
+BEGIN
+ IF NEW.tenant_id IS DISTINCT FROM OLD.tenant_id OR
+    NEW.operation_id IS DISTINCT FROM OLD.operation_id OR
+    NEW.actor_id IS DISTINCT FROM OLD.actor_id OR
+    NEW.origin_key IS DISTINCT FROM OLD.origin_key THEN
+   RAISE EXCEPTION 'IMMUTABLE_FINANCIAL_ORIGIN' USING ERRCODE='23514';
+ END IF;
+ RETURN NEW;
+END $;
+DROP TRIGGER IF EXISTS payment_consent_immutable_origin ON telegram_channel.payment_consent;
+CREATE TRIGGER payment_consent_immutable_origin BEFORE UPDATE ON telegram_channel.payment_consent
+FOR EACH ROW EXECUTE FUNCTION telegram_channel.prevent_origin_rewrite();
+DROP TRIGGER IF EXISTS financial_handoff_immutable_origin ON telegram_channel.financial_handoff;
+CREATE TRIGGER financial_handoff_immutable_origin BEFORE UPDATE ON telegram_channel.financial_handoff
+FOR EACH ROW EXECUTE FUNCTION telegram_channel.prevent_origin_rewrite();
+CREATE OR REPLACE FUNCTION telegram_channel.prevent_inbox_origin_rewrite()
+RETURNS trigger LANGUAGE plpgsql AS $
+BEGIN
+ IF NEW.tenant_id IS DISTINCT FROM OLD.tenant_id OR NEW.actor_id IS DISTINCT FROM OLD.actor_id OR
+    NEW.channel IS DISTINCT FROM OLD.channel OR NEW.message_id IS DISTINCT FROM OLD.message_id OR
+    NEW.origin_key IS DISTINCT FROM OLD.origin_key OR NEW.payload_digest IS DISTINCT FROM OLD.payload_digest THEN
+    RAISE EXCEPTION 'IMMUTABLE_MESSAGE_ORIGIN' USING ERRCODE='23514';
+ END IF;
+ RETURN NEW;
+END $;
+DROP TRIGGER IF EXISTS message_inbox_immutable_origin ON telegram_channel.message_inbox;
+CREATE TRIGGER message_inbox_immutable_origin BEFORE UPDATE ON telegram_channel.message_inbox
+FOR EACH ROW EXECUTE FUNCTION telegram_channel.prevent_inbox_origin_rewrite();
 COMMIT;
