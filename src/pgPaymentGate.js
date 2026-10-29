@@ -20,6 +20,26 @@ function createPgPaymentGate(pool){
    return {state:'DUPLICATE',operationKey:key};
   });
  }
+ async function confirmWithVerifiedPin({tenant,operationId,actorId,pin,verifyPin}={}) {
+  if (typeof verifyPin!=='function' || typeof tenant!=='string' || !tenant ||
+      typeof operationId!=='string' || !operationId || typeof actorId!=='string' || !actorId)
+    return {state:'INVALID'};
+  // Check current pending scope before PIN verification, then lock the same
+  // operation for the state transition. No card, amount or currency supplied
+  // by the browser can override the immutable stored payment intent.
+  const pending=await transaction(async c=>{
+   const q=await c.query("SELECT actor_id FROM telegram_channel.payment_consent WHERE tenant_id=$1 AND operation_id=$2 AND actor_id=$3 AND state='PENDING' AND expires_at>now() FOR UPDATE",
+     [tenant,operationId,actorId]);
+   return q.rowCount===1;
+  });
+  if(!pending)return {state:'NOT_ELIGIBLE'};
+  if(!await verifyPin({tenant,actorId,pin}))return {state:'INVALID_PIN'};
+  return transaction(async c=>{
+   const q=await c.query("UPDATE telegram_channel.payment_consent SET state='AUTHORIZED',authorized_at=now() WHERE tenant_id=$1 AND operation_id=$2 AND actor_id=$3 AND state='PENDING' AND expires_at>now() RETURNING operation_id,card_reference,amount_minor,currency",
+     [tenant,operationId,actorId]);
+   return q.rowCount===1?{state:'AUTHORIZED',operation:q.rows[0]}:{state:'NOT_ELIGIBLE'};
+  });
+ }
  async function consumeConsent({tenant,operationId,actorId}){
   return transaction(async c=>{
    const q=await c.query("UPDATE telegram_channel.payment_consent SET state='CONSUMED',consumed_at=now() WHERE tenant_id=$1 AND operation_id=$2 AND actor_id=$3 AND state='AUTHORIZED' AND expires_at>now() RETURNING operation_id,card_reference,amount_minor,currency",
@@ -27,6 +47,6 @@ function createPgPaymentGate(pool){
    return q.rowCount===1?{state:'CONSUMED',operation:q.rows[0]}:{state:'NOT_AUTHORIZED'};
   });
  }
- return Object.freeze({admitOrigin,consumeConsent,isFinancialAuthority:false});
+ return Object.freeze({admitOrigin,confirmWithVerifiedPin,consumeConsent,isFinancialAuthority:false});
 }
 module.exports={createPgPaymentGate};
