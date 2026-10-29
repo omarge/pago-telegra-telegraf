@@ -47,6 +47,19 @@ function createPgPaymentGate(pool){
    return q.rowCount===1?{state:'AUTHORIZED',operation:q.rows[0]}:{state:'NOT_ELIGIBLE'};
   });
  }
+ async function stageHeldFinancialHandoff({tenant,operationId,actorId}={}) {
+  if(!tenant||!actorId||typeof operationId!=='string'||!/^[A-Za-z0-9_-]{8,128}$/.test(operationId))
+   return {state:'INVALID'};
+  return transaction(async c=>{
+   const q=await c.query("UPDATE telegram_channel.payment_consent SET state='CONSUMED',consumed_at=now() WHERE tenant_id=$1 AND operation_id=$2 AND actor_id=$3 AND state='AUTHORIZED' AND expires_at>now() RETURNING operation_id,card_reference,amount_minor,currency",
+    [tenant,operationId,actorId]);
+   if(q.rowCount!==1)return {state:'NOT_AUTHORIZED'};
+   const x=q.rows[0];
+   await c.query("INSERT INTO telegram_channel.financial_handoff (tenant_id,operation_id,actor_id,card_reference,amount_minor,currency,status) VALUES($1,$2,$3,$4,$5,$6,'HELD')",
+    [tenant,operationId,actorId,x.card_reference,x.amount_minor,x.currency]);
+   return {state:'HELD',operationId};
+  });
+ }
  async function consumeConsent({tenant,operationId,actorId}){
   return transaction(async c=>{
    const q=await c.query("UPDATE telegram_channel.payment_consent SET state='CONSUMED',consumed_at=now() WHERE tenant_id=$1 AND operation_id=$2 AND actor_id=$3 AND state='AUTHORIZED' AND expires_at>now() RETURNING operation_id,card_reference,amount_minor,currency",
@@ -54,6 +67,6 @@ function createPgPaymentGate(pool){
    return q.rowCount===1?{state:'CONSUMED',operation:q.rows[0]}:{state:'NOT_AUTHORIZED'};
   });
  }
- return Object.freeze({admitOrigin,previewConsent,confirmWithVerifiedPin,consumeConsent,isFinancialAuthority:false});
+ return Object.freeze({admitOrigin,previewConsent,confirmWithVerifiedPin,stageHeldFinancialHandoff,consumeConsent,isFinancialAuthority:false});
 }
 module.exports={createPgPaymentGate};
