@@ -31,47 +31,14 @@ function startFormServer(port = 8765) {
     res.send(nipChangeForm());
   });
 
-  app.post('/pay/charge', async (req, res) => {
-    const { token_id, amount = 1000, holder, request_id, payer_id } = req.body || {};
-    console.log('[charge] token_id=', token_id, 'rid=', request_id);
-    if (!token_id || !MERCHANT || !PRIVATE_KEY) {
-      return res.status(400).json({ error: 'missing token or openpay config' });
-    }
-    try {
-      const result = await openpayCharge(token_id, amount, holder);
-      console.log('[charge] openpay result', result.id, result.status);
-      if (botInstance && request_id && payer_id) {
-        await notifyPaid(botInstance, request_id, payer_id, result.id, amount);
-      }
-      res.json({ ok: true, charge_id: result.id, status: result.status });
-    } catch (e) {
-      console.error('[charge] error', e.message);
-      res.status(502).json({ error: e.message });
-    }
-  });
-
-  app.post('/cards/enroll', async (req, res) => {
-    const { token_id, holder, last4, user_id } = req.body || {};
-    console.log('[enroll] token_id=', token_id, 'user=', user_id);
-    if (!token_id || !user_id) return res.status(400).json({ error: 'missing token or user' });
-    const card = { last4: last4 || '????', brand: 'Card', tokenId: token_id, holder };
-    store.addCard(user_id, card);
-    console.log('[enroll] saved', last4, 'for', user_id);
-    res.json({ ok: true, saved: true, last4: card.last4 });
-  });
-
-  app.post('/nip/change', async (req, res) => {
-    const { user_id, old_pin, new_pin } = req.body || {};
-    console.log('[nip] change for', user_id, 'old=', old_pin, 'new=', new_pin);
-    if (!user_id || !old_pin || !new_pin) return res.status(400).json({ error: 'missing fields' });
-    const current = store.getPin(user_id);
-    console.log('[nip] current pin for', user_id, '=', current);
-    if (old_pin !== current) return res.status(403).json({ error: 'NIP actual incorrecto' });
-    if (!/^\d{4}$/.test(new_pin)) return res.status(400).json({ error: 'NIP debe ser 4 dígitos' });
-    store.setPin(user_id, new_pin);
-    console.log('[nip] updated for', user_id);
-    res.json({ ok: true });
-  });
+  // Security hold: legacy unauthenticated financial and enrollment routes must
+  // never make PSP calls, store raw tokens or accept caller-selected identity.
+  for (const route of ['/pay/charge', '/cards/enroll', '/nip/change']) {
+    app.post(route, (_req, res) => res.status(503).json({
+      code: 'SECURE_AUTHORIZATION_REQUIRED',
+      message: 'Operación deshabilitada hasta contar con autenticación HTTPS y autorización financiera.'
+    }));
+  }
 
   app.get('/healthz', (_req, res) => res.send('ok'));
 
