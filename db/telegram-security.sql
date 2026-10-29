@@ -21,4 +21,13 @@ CREATE TABLE IF NOT EXISTS telegram_channel.pin_verifier (
  locked_until timestamptz, enrolled_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY(tenant_id,actor_id)
 );
+CREATE TABLE IF NOT EXISTS telegram_channel.web_session (
+ token_hash char(64) PRIMARY KEY,
+ tenant_id text NOT NULL, actor_id text NOT NULL,
+ expires_at timestamptz NOT NULL,
+ revoked_at timestamptz,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS web_session_active_actor
+ ON telegram_channel.web_session (tenant_id,actor_id,expires_at);
 COMMIT;
