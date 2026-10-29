@@ -17,3 +17,11 @@ test('canonical boundaries and payload format reject malformed identity',()=>{
  assert.throws(()=>signHandoff({...base,amountMinor:'4.20'},key),/INVALID/);
  assert.throws(()=>signHandoff(base,'short'),/KEY_INVALID/);
 });
+
+test('reject unsigned envelope or payload extension instead of silently ignoring fields',()=>{
+ const v=signHandoff(base,key);
+ assert.equal(verifyHandoff({...v,executionAllowed:true},key),false);
+ assert.equal(verifyHandoff({...v,payload:{...v.payload,merchantId:'attacker'}},key),false);
+ assert.throws(()=>signHandoff({...base,merchantId:'untrusted'},key),/INVALID/);
+ assert.throws(()=>signHandoff({...base,occurredAt:'2026-10-29T21:00:00Z-not-a-timestamp'},key),/INVALID/);
+});
