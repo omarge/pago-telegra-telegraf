@@ -33,7 +33,7 @@ function startFormServer(port = 8765) {
 
   app.get('/healthz', (_req, res) => res.send('ok'));
 
-  app.listen(port, '0.0.0.0', () => {
+  return app.listen(port, '0.0.0.0', () => {
     console.log(`Form server listening on 0.0.0.0:${port}/pay/one-time`);
   });
 }
