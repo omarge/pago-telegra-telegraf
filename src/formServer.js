@@ -46,6 +46,46 @@ function startFormServer(port = 8765, {webSessions=null, paymentGate=null, pinSe
     }
   });
 
+  // Minimal HTTPS-only microapp; no account/card secrets embedded in HTML.
+  app.get('/pay/consent', (_req,res) => {
+    res.set('Cache-Control','no-store');
+    res.set('Content-Security-Policy',"default-src 'none'; script-src 'self' https://telegram.org; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    return res.type('html').send('<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KashBitPay — Confirmar pago</title></head><body><main><h1>Confirmar pago</h1><p id="details">Autenticando…</p><form id="consent" hidden><label>NIP<input id="pin" type="password" inputmode="numeric" autocomplete="off" pattern="[0-9]{4}" maxlength="4" required></label><button type="submit">Autorizar operación</button></form><p id="result" role="status"></p></main><script src="https://telegram.org/js/telegram-web-app.js"></script><script src="/pay/consent-app.js"></script></body></html>');
+  });
+  app.get('/pay/consent-app.js',(_req,res)=>{
+    res.set('Cache-Control','no-store');
+    res.type('application/javascript').send(`
+'use strict';
+const params=new URLSearchParams(location.search);
+const operationId=params.get('operationId');
+const details=document.getElementById('details'),form=document.getElementById('consent');
+const result=document.getElementById('result'),pin=document.getElementById('pin');
+const tg=window.Telegram?.WebApp;
+async function start(){
+ if(!tg?.initData||!operationId||!/^[A-Za-z0-9_-]{8,128}$/.test(operationId)){
+  details.textContent='Abre el enlace desde Telegram.';return;
+ }
+ tg.ready();
+ const auth=await fetch('/pay/auth/telegram',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({initData:tg.initData})});
+ if(!auth.ok){details.textContent='No se pudo autenticar la sesión.';return;}
+ const preview=await fetch('/pay/consent/preview/'+encodeURIComponent(operationId),{credentials:'same-origin'});
+ if(!preview.ok){details.textContent='Operación no disponible.';return;}
+ const data=await preview.json();
+ details.textContent='Importe: '+(Number(data.amountMinor)/100).toFixed(2)+' '+data.currency;
+ form.hidden=false;
+}
+form.addEventListener('submit',async e=>{
+ e.preventDefault();form.hidden=true;
+ try{
+  const response=await fetch('/pay/consent/verify-pin',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({operationId,pin:pin.value})});
+  result.textContent=response.ok?'Autorización registrada. Pago pendiente de confirmación financiera.':'No se autorizó la operación.';
+ }catch(_){result.textContent='No se pudo completar la solicitud.';}
+ finally{pin.value='';}
+});
+start().catch(()=>{details.textContent='Servicio temporalmente no disponible.';});
+`);
+  });
+
   // Read-only payment preview: no card token, account identifier or NIP returned.
   app.get('/pay/consent/preview/:operationId', async (req,res) => {
     res.set('Cache-Control','no-store');
