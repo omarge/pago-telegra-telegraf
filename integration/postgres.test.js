@@ -11,7 +11,7 @@ const tenant='integration-'+process.pid;
 const gate=createPgPaymentGate(pool);
 const pins=createPgPinService({pool,pepper:'integration-secret-pepper-for-CI-only-123456789'});
 const sessions=createPgWebSession({pool,ttlSeconds:60});
-test.after(async()=>{await pool.query('DELETE FROM telegram_channel.message_inbox WHERE tenant_id=$1',[tenant]);await pool.query('DELETE FROM telegram_channel.financial_handoff WHERE tenant_id=$1',[tenant]);await pool.query('DELETE FROM telegram_channel.payment_consent WHERE tenant_id=$1',[tenant]);await pool.query('DELETE FROM telegram_channel.pin_verifier WHERE tenant_id=$1',[tenant]);await pool.query('DELETE FROM telegram_channel.web_session WHERE tenant_id=$1',[tenant]);await pool.end();});
+test.after(async()=>{await pool.query('DELETE FROM telegram_channel.financial_handoff WHERE tenant_id=$1',[tenant]);await pool.query('DELETE FROM telegram_channel.payment_consent WHERE tenant_id=$1',[tenant]);await pool.query('DELETE FROM telegram_channel.message_inbox WHERE tenant_id=$1',[tenant]);await pool.query('DELETE FROM telegram_channel.pin_verifier WHERE tenant_id=$1',[tenant]);await pool.query('DELETE FROM telegram_channel.web_session WHERE tenant_id=$1',[tenant]);await pool.end();});
 test('PostgreSQL: 32 identical message arrivals admit exactly one',async()=>{
  const x=await Promise.all(Array.from({length:32},()=>gate.admitOrigin({tenant,channel:'TELEGRAM',actorId:'111',messageId:'555',payload:{amountMinor:1000}})));
  assert.equal(x.filter(y=>y.state==='NEW').length,1);
