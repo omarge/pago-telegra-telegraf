@@ -15,4 +15,10 @@ CREATE TABLE IF NOT EXISTS telegram_channel.payment_consent (
  authorized_at timestamptz, consumed_at timestamptz,
  PRIMARY KEY(tenant_id,operation_id)
 );
+CREATE TABLE IF NOT EXISTS telegram_channel.pin_verifier (
+ tenant_id text NOT NULL, actor_id text NOT NULL,
+ verifier text NOT NULL, attempts integer NOT NULL DEFAULT 0 CHECK(attempts BETWEEN 0 AND 5),
+ locked_until timestamptz, enrolled_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(tenant_id,actor_id)
+);
 COMMIT;
