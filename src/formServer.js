@@ -1,6 +1,7 @@
 const express = require('express');
 const https = require('https');
 const store = require('./store');
+const {verifyTelegramInitData}=require('./telegramWebAuth');
 
 const MERCHANT = process.env.OPENPAY_MERCHANT_ID || '';
 const PRIVATE_KEY = process.env.OPENPAY_PRIVATE_KEY || '';
@@ -21,6 +22,17 @@ function startFormServer(port = 8765) {
   for (const route of ['/pay/one-time', '/cards/enroll', '/nip/change']) {
     app.get(route, (_req,res) => res.status(503).send('Formulario temporalmente no disponible: autenticación requerida.'));
   }
+
+  // Read-only authentication exchange. No PIN data, financial authorization,
+  // session issuance, card token, or PSP call is performed here.
+  app.post('/pay/auth/telegram', (req,res) => {
+    try {
+      const verified=verifyTelegramInitData(req.body?.initData,process.env.TELEGRAM_BOT_TOKEN);
+      return res.json({authenticated:true,actorId:verified.actorId});
+    } catch (_) {
+      return res.status(401).json({code:'TELEGRAM_AUTH_INVALID'});
+    }
+  });
 
   // Security hold: legacy unauthenticated financial and enrollment routes must
   // never make PSP calls, store raw tokens or accept caller-selected identity.
