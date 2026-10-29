@@ -1,6 +1,7 @@
 const express = require('express');
 const https = require('https');
 const store = require('./store');
+const {verifyTelegramInitData}=require('./telegramWebAuth');
 
 const MERCHANT = process.env.OPENPAY_MERCHANT_ID || '';
 const PRIVATE_KEY = process.env.OPENPAY_PRIVATE_KEY || '';
@@ -12,70 +13,136 @@ function setBot(bot) {
   botInstance = bot;
 }
 
-function startFormServer(port = 8765) {
+function startFormServer(port = 8765, {webSessions=null, paymentGate=null, pinService=null, tenant=process.env.KASHBIT_TENANT_ID, publicOrigin=process.env.FORM_PUBLIC_ORIGIN} = {}) {
   const app = express();
   app.use(express.json());
 
-  app.get('/pay/one-time', (req, res) => {
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    res.send(oneTimeForm());
-  });
+  // Do not render a legacy credential-capture form without authenticated
+  // Telegram initData and a server-side session bound to the payment request.
+  for (const route of ['/pay/one-time', '/cards/enroll', '/nip/change']) {
+    app.get(route, (_req,res) => res.status(503).send('Formulario temporalmente no disponible: autenticación requerida.'));
+  }
 
-  app.get('/cards/enroll', (req, res) => {
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    res.send(enrollForm());
-  });
-
-  app.get('/nip/change', (req, res) => {
-    res.set('Content-Type', 'text/html; charset=utf-8');
-    res.send(nipChangeForm());
-  });
-
-  app.post('/pay/charge', async (req, res) => {
-    const { token_id, amount = 1000, holder, request_id, payer_id } = req.body || {};
-    console.log('[charge] token_id=', token_id, 'rid=', request_id);
-    if (!token_id || !MERCHANT || !PRIVATE_KEY) {
-      return res.status(400).json({ error: 'missing token or openpay config' });
-    }
+  // Read-only authentication exchange. No PIN data, financial authorization,
+  // session issuance, card token, or PSP call is performed here.
+  app.post('/pay/auth/telegram', async (req,res) => {
+    res.set('Cache-Control','no-store');
+    const expectedOrigin=typeof publicOrigin==='string'?publicOrigin.replace(/\/$/,''):null;
+    if(!expectedOrigin||req.get('origin')!==expectedOrigin||!/^application\/json(?:;|$)/i.test(req.get('content-type')||''))
+      return res.status(403).json({code:'ORIGIN_DENIED'});
     try {
-      const result = await openpayCharge(token_id, amount, holder);
-      console.log('[charge] openpay result', result.id, result.status);
-      if (botInstance && request_id && payer_id) {
-        await notifyPaid(botInstance, request_id, payer_id, result.id, amount);
+      const verified=verifyTelegramInitData(req.body?.initData,process.env.TELEGRAM_BOT_TOKEN);
+      if (!webSessions || typeof tenant!=='string' || !tenant) {
+        return res.status(503).json({code:'SESSION_SERVICE_UNAVAILABLE'});
       }
-      res.json({ ok: true, charge_id: result.id, status: result.status });
-    } catch (e) {
-      console.error('[charge] error', e.message);
-      res.status(502).json({ error: e.message });
+      const session=await webSessions.issue({tenant,actorId:verified.actorId});
+      res.set('Cache-Control','no-store');
+      res.cookie('kashbit_tg_session',session.token,{
+        httpOnly:true,secure:true,sameSite:'strict',path:'/pay',maxAge:session.expiresIn*1000
+      });
+      return res.json({authenticated:true,expiresIn:session.expiresIn});
+    } catch (_) {
+      return res.status(401).json({code:'TELEGRAM_AUTH_INVALID'});
     }
   });
 
-  app.post('/cards/enroll', async (req, res) => {
-    const { token_id, holder, last4, user_id } = req.body || {};
-    console.log('[enroll] token_id=', token_id, 'user=', user_id);
-    if (!token_id || !user_id) return res.status(400).json({ error: 'missing token or user' });
-    const card = { last4: last4 || '????', brand: 'Card', tokenId: token_id, holder };
-    store.addCard(user_id, card);
-    console.log('[enroll] saved', last4, 'for', user_id);
-    res.json({ ok: true, saved: true, last4: card.last4 });
+  // Minimal HTTPS-only microapp; no account/card secrets embedded in HTML.
+  app.get('/pay/consent', (_req,res) => {
+    res.set('Cache-Control','no-store');
+    res.set('Content-Security-Policy',"default-src 'none'; script-src 'self' https://telegram.org; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    return res.type('html').send('<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KashBitPay — Confirmar pago</title></head><body><main><h1>Confirmar pago</h1><p id="details">Autenticando…</p><form id="consent" hidden><label>NIP<input id="pin" type="password" inputmode="numeric" autocomplete="off" pattern="[0-9]{4}" maxlength="4" required></label><button type="submit">Autorizar operación</button></form><p id="result" role="status"></p></main><script src="https://telegram.org/js/telegram-web-app.js"></script><script src="/pay/consent-app.js"></script></body></html>');
+  });
+  app.get('/pay/consent-app.js',(_req,res)=>{
+    res.set('Cache-Control','no-store');
+    res.type('application/javascript').send(`
+'use strict';
+const params=new URLSearchParams(location.search);
+const operationId=params.get('operationId');
+const details=document.getElementById('details'),form=document.getElementById('consent');
+const result=document.getElementById('result'),pin=document.getElementById('pin');
+const tg=window.Telegram?.WebApp;
+async function start(){
+ if(!tg?.initData||!operationId||!/^[A-Za-z0-9_-]{8,128}$/.test(operationId)){
+  details.textContent='Abre el enlace desde Telegram.';return;
+ }
+ tg.ready();
+ const auth=await fetch('/pay/auth/telegram',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({initData:tg.initData})});
+ if(!auth.ok){details.textContent='No se pudo autenticar la sesión.';return;}
+ const preview=await fetch('/pay/consent/preview/'+encodeURIComponent(operationId),{credentials:'same-origin'});
+ if(!preview.ok){details.textContent='Operación no disponible.';return;}
+ const data=await preview.json();
+ details.textContent='Importe: '+(Number(data.amountMinor)/100).toFixed(2)+' '+data.currency;
+ form.hidden=false;
+}
+form.addEventListener('submit',async e=>{
+ e.preventDefault();form.hidden=true;
+ try{
+  const response=await fetch('/pay/consent/verify-pin',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({operationId,pin:pin.value})});
+  result.textContent=response.ok?'Autorización registrada. Pago pendiente de confirmación financiera.':'No se autorizó la operación.';
+ }catch(_){result.textContent='No se pudo completar la solicitud.';}
+ finally{pin.value='';}
+});
+start().catch(()=>{details.textContent='Servicio temporalmente no disponible.';});
+`);
   });
 
-  app.post('/nip/change', async (req, res) => {
-    const { user_id, old_pin, new_pin } = req.body || {};
-    console.log('[nip] change for', user_id, 'old=', old_pin, 'new=', new_pin);
-    if (!user_id || !old_pin || !new_pin) return res.status(400).json({ error: 'missing fields' });
-    const current = store.getPin(user_id);
-    console.log('[nip] current pin for', user_id, '=', current);
-    if (old_pin !== current) return res.status(403).json({ error: 'NIP actual incorrecto' });
-    if (!/^\d{4}$/.test(new_pin)) return res.status(400).json({ error: 'NIP debe ser 4 dígitos' });
-    store.setPin(user_id, new_pin);
-    console.log('[nip] updated for', user_id);
-    res.json({ ok: true });
+  // Read-only payment preview: no card token, account identifier or NIP returned.
+  app.get('/pay/consent/preview/:operationId', async (req,res) => {
+    res.set('Cache-Control','no-store');
+    if(!webSessions||!paymentGate||!tenant)return res.status(503).json({code:'PREVIEW_UNAVAILABLE'});
+    const cookie=(req.get('cookie')||'').split(';').map(v=>v.trim()).find(v=>v.startsWith('kashbit_tg_session='));
+    try {
+      const session=await webSessions.requireSession({tenant,token:cookie?.slice('kashbit_tg_session='.length)});
+      if(!session)return res.status(401).json({code:'SESSION_INVALID'});
+      const operation=await paymentGate.previewConsent({tenant,actorId:session.actorId,operationId:req.params.operationId});
+      if(!operation)return res.status(404).json({code:'OPERATION_NOT_AVAILABLE'});
+      return res.json({operationId:operation.operation_id,amountMinor:operation.amount_minor,
+        currency:operation.currency,expiresAt:operation.expires_at});
+    }catch(_){return res.status(503).json({code:'PREVIEW_UNAVAILABLE'});}
   });
+
+  // Session identity comes ONLY from the server-issued cookie, never request body.
+  // Exact Origin and JSON content-type are mandatory for state-changing requests.
+  app.post('/pay/consent/verify-pin', async (req,res) => {
+    res.set('Cache-Control','no-store');
+    const expected=typeof publicOrigin==='string'?publicOrigin.replace(/\/$/,''):null;
+    if(!expected || req.get('origin')!==expected || !/^application\/json(?:;|$)/i.test(req.get('content-type')||''))
+      return res.status(403).json({code:'ORIGIN_DENIED'});
+    if(!webSessions||!paymentGate||!pinService||!tenant)
+      return res.status(503).json({code:'SECURE_CONSENT_UNAVAILABLE'});
+    const cookie=(req.get('cookie')||'').split(';').map(s=>s.trim()).find(s=>s.startsWith('kashbit_tg_session='));
+    const token=cookie?cookie.slice('kashbit_tg_session='.length):null;
+    try {
+      const session=await webSessions.requireSession({tenant,token});
+      if(!session)return res.status(401).json({code:'SESSION_INVALID'});
+      const operationId=req.body?.operationId, pin=req.body?.pin;
+      if(typeof operationId!=='string'||!/^[-_A-Za-z0-9]{8,128}$/.test(operationId)||
+         typeof pin!=='string'||!/^\d{4}$/.test(pin))
+        return res.status(400).json({code:'CONSENT_INPUT_INVALID'});
+      const outcome=await paymentGate.confirmWithVerifiedPin({
+        tenant,operationId,actorId:session.actorId,pin,
+        verifyPin:args=>pinService.verify(args)
+      });
+      return res.status(outcome.state==='AUTHORIZED'?200:403).json({
+        state:outcome.state
+      });
+    } catch (_) {
+      return res.status(503).json({code:'CONSENT_UNAVAILABLE'});
+    }
+  });
+
+  // Security hold: legacy unauthenticated financial and enrollment routes must
+  // never make PSP calls, store raw tokens or accept caller-selected identity.
+  for (const route of ['/pay/charge', '/cards/enroll', '/nip/change']) {
+    app.post(route, (_req, res) => res.status(503).json({
+      code: 'SECURE_AUTHORIZATION_REQUIRED',
+      message: 'Operación deshabilitada hasta contar con autenticación HTTPS y autorización financiera.'
+    }));
+  }
 
   app.get('/healthz', (_req, res) => res.send('ok'));
 
-  app.listen(port, '0.0.0.0', () => {
+  return app.listen(port, '0.0.0.0', () => {
     console.log(`Form server listening on 0.0.0.0:${port}/pay/one-time`);
   });
 }

@@ -26,9 +26,9 @@ describe('store', () => {
     assert.equal(cards[0].last4, '4242');
   });
 
-  it('sets and gets pin', () => {
-    store.setPin(444, '5678');
-    assert.equal(store.getPin(444), '5678');
-    assert.equal(store.getPin('unknown'), '1234');
+  it('rejects legacy plaintext PIN enrollment and never supplies a default PIN', () => {
+    assert.throws(() => store.setPin(444, '5678'), /LEGACY_PIN_ENROLLMENT_DISABLED/);
+    assert.equal(store.getPin(444), null);
+    assert.equal(store.getPin('unknown'), null);
   });
 });
