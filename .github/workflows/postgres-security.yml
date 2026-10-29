@@ -1,0 +1,37 @@
+name: PostgreSQL 18 security regression
+on:
+  pull_request:
+    paths:
+      - 'src/pg*.js'
+      - 'src/messageOrigin.js'
+      - 'db/telegram-security.sql'
+      - 'tests/postgres.integration.test.js'
+      - '.github/workflows/postgres-security.yml'
+  workflow_dispatch:
+jobs:
+  postgres-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: securitytest
+          POSTGRES_PASSWORD: testonly_password
+          POSTGRES_DB: telegraf_security
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U securitytest -d telegraf_security"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      TEST_DATABASE_URL: postgres://securitytest:testonly_password@localhost:5432/telegraf_security
+      PGPASSWORD: testonly_password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --no-audit --no-fund
+      - run: psql -h localhost -U securitytest -d telegraf_security -v ON_ERROR_STOP=1 -f db/telegram-security.sql
+      - run: node --test tests/postgres.integration.test.js
