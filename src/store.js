@@ -127,13 +127,13 @@ function getCards(userId) {
   return cards.get(String(userId)) || [];
 }
 
-function setPin(userId, pin) {
-  pins.set(String(userId), pin);
-  save();
+function setPin() {
+  throw new Error('LEGACY_PIN_ENROLLMENT_DISABLED');
 }
 
 function getPin(userId) {
-  return pins.get(String(userId)) || '1234';
+  // Legacy encrypted PINs are not trusted as a payment authorization factor.
+  return null;
 }
 
 function setPinEntry(rid, digits) {
