@@ -237,7 +237,7 @@ bot.action(/menu:(\w+):(.+)/, async (ctx) => {
   }
 });
 
-bot.action(/pay:card:(\d+):(.+)/, async (ctx) => {
+bot.action(/pay:card:([^:]+):(.+)/, async (ctx) => {
   const last4 = ctx.match[1];
   const rid = ctx.match[2];
   console.log('selected card', last4, rid);
