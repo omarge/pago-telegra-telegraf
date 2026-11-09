@@ -2,6 +2,7 @@ const { Telegraf, Markup } = require('telegraf');
 const config = require('./config');
 const store = require('./store');
 const menus = require('./menus');
+const { chargeSavedCard } = require('./formServer');
 
 if (!config.token) {
   console.error('Set TELEGRAM_BOT_TOKEN');
@@ -15,6 +16,7 @@ const bot = new Telegraf(config.token, {
 const lastStart = new Map();
 const START_COOLDOWN = 10000;
 const amountEntry = new Map();
+const chargesInFlight = new Set();
 
 function nipKeyboard(rid, digits) {
   const masked = digits.replace(/./g, '•');
@@ -241,7 +243,19 @@ bot.action(/pay:card:(\d+):(.+)/, async (ctx) => {
   console.log('selected card', last4, rid);
   await ctx.answerCbQuery();
   const req = store.getRequest(rid);
-  if (!req) return ctx.reply('Solicitud no encontrada.');
+  if (!req || String(req.payerId) !== String(ctx.from.id)) {
+    return ctx.reply('Solicitud no encontrada para este pagador.');
+  }
+  const matching = store.getCards(ctx.from.id).filter(
+    c => String(c.last4) === String(last4) && c.openpayCardId && c.openpayCustomerId
+  );
+  if (matching.length !== 1) {
+    return ctx.reply('Tarjeta no registrada en Openpay o selección ambigua. Vuelve a enrolarla.');
+  }
+  if (req.state === 'PAID' || req.state === 'CHARGING' || req.state === 'CHARGE_UNKNOWN') {
+    return ctx.reply('La solicitud ya fue procesada o requiere conciliación.');
+  }
+  req.selectedCardId = matching[0].openpayCardId;
   store.setState(rid, 'NEED_NIP');
   store.setPinEntry(rid, '');
   const k = nipKeyboard(rid, '');
@@ -261,24 +275,60 @@ bot.action(/nip:(.+):(.+)/, async (ctx) => {
     const expected = store.getPin(ctx.from.id);
     if (current === expected) {
       const req = store.getRequest(rid);
-      store.setState(rid, 'PAID');
-      const amount = req ? req.amount : 0;
-      const amountText = (amount / 100).toFixed(2) + ' MXN';
-      const tracking = 'SIM-' + Date.now();
-      store.addTransaction(ctx.from.id, { type: 'payment', amount, desc: tracking });
-      if (req && req.requesterId) {
-        store.addTransaction(req.requesterId, { type: 'charge', amount, desc: tracking });
+      if (!req || String(req.payerId) !== String(ctx.from.id) ||
+          req.state !== 'NEED_NIP' || chargesInFlight.has(rid)) {
+        return ctx.reply('Solicitud inválida o cargo en curso.');
       }
-      const msg =
-        `✅ <b>Pago completado</b>\n` +
-        `Solicitud: <code>${rid}</code>\n` +
-        (amountText ? `Importe: ${amountText}\n` : '') +
-        `Rastreo: <code>${tracking}</code>`;
-      await ctx.editMessageText(msg, { parse_mode: 'HTML' });
-      if (req && req.requesterId) {
-        try {
-          await ctx.telegram.sendMessage(req.requesterId, msg, { parse_mode: 'HTML' });
-        } catch (_) {}
+      const card = store.getCards(ctx.from.id).find(
+        c => c.openpayCardId && c.openpayCardId === req.selectedCardId
+      );
+      if (!card || !card.openpayCustomerId || !card.deviceSessionId) {
+        return ctx.reply('Esta tarjeta debe registrarse nuevamente en Openpay.');
+      }
+      if (!Number.isSafeInteger(req.amount) || req.amount <= 0) {
+        return ctx.reply('El importe de la solicitud no es válido.');
+      }
+      chargesInFlight.add(rid);
+      store.setState(rid, 'CHARGING');
+      store.setPinEntry(rid, '');
+      try { await ctx.editMessageText('Procesando cargo en Openpay Sandbox...'); }
+      catch (notifyError) { console.error('[saved-card] Telegram progress:', notifyError.message); }
+      try {
+        const charge = await chargeSavedCard({
+          customerId: card.openpayCustomerId,
+          cardId: card.openpayCardId,
+          amountCents: req.amount,
+          deviceSessionId: card.deviceSessionId,
+          orderId: rid
+        });
+        if (!charge.id || charge.status !== 'completed') {
+          store.setState(rid, 'CHARGE_UNKNOWN');
+          return ctx.reply('Openpay no confirmó un cargo completado. Revisar estado: ' +
+            (charge.status || 'desconocido') + '. Referencia: ' + (charge.id || 'sin ID'));
+        }
+        store.setState(rid, 'PAID');
+        const amountText = (req.amount / 100).toFixed(2) + ' MXN';
+        store.addTransaction(ctx.from.id, { type: 'payment', amount: req.amount, desc: charge.id });
+        if (req.requesterId) {
+          store.addTransaction(req.requesterId, { type: 'charge', amount: req.amount, desc: charge.id });
+        }
+        const msg = `✅ <b>Pago completado</b>\n` +
+          `Solicitud: <code>${rid}</code>\n` +
+          `Importe: ${amountText}\n` +
+          `Rastreo Openpay: <code>${charge.id}</code>`;
+        try { await ctx.reply(msg, { parse_mode: 'HTML' }); }
+        catch (notifyError) { console.error('[saved-card] Telegram result:', notifyError.message); }
+        if (req.requesterId) {
+          try { await ctx.telegram.sendMessage(req.requesterId, msg, { parse_mode: 'HTML' }); }
+          catch (_) {}
+        }
+      } catch (error) {
+        store.setState(rid, 'CHARGE_UNKNOWN');
+        console.error('[saved-card] Openpay error', rid, error.message);
+        await ctx.reply('No se confirmó el cargo en Openpay. No reintentes esta solicitud hasta conciliarla. ' +
+          'Detalle: ' + error.message);
+      } finally {
+        chargesInFlight.delete(rid);
       }
       return;
     } else {
