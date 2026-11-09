@@ -297,30 +297,62 @@ bot.action(/nip:(.+):(.+)/, async (ctx) => {
   } catch (_) {}
 });
 
+// bot.action(/confirm:yes:(.+)/, async (ctx) => {
+//   const rid = ctx.match[1];
+//   console.log('confirm', rid);
+//   await ctx.answerCbQuery();
+//   const req = store.getRequest(rid);
+//   store.setState(rid, 'PAID');
+//   const amount = req ? req.amount : 0;
+//   const amountText = (amount / 100).toFixed(2) + ' MXN';
+//   const tracking = 'SIM-' + Date.now();
+//   store.addTransaction(ctx.from.id, { type: 'payment', amount, desc: tracking });
+//   if (req && req.requesterId) {
+//     store.addTransaction(req.requesterId, { type: 'charge', amount, desc: tracking });
+//   }
+//   const msg =
+//     `✅ <b>Pago completado</b>\n` +
+//     `Solicitud: <code>${rid}</code>\n` +
+//     (amountText ? `Importe: ${amountText}\n` : '') +
+//     `Rastreo: <code>${tracking}</code>`;
+//   await ctx.editMessageText(msg, { parse_mode: 'HTML' });
+//   if (req && req.requesterId) {
+//     try {
+//       await ctx.telegram.sendMessage(req.requesterId, msg, { parse_mode: 'HTML' });
+//     } catch (_) {}
+//   }
+// });
+
 bot.action(/confirm:yes:(.+)/, async (ctx) => {
   const rid = ctx.match[1];
-  console.log('confirm', rid);
   await ctx.answerCbQuery();
+
   const req = store.getRequest(rid);
-  store.setState(rid, 'PAID');
-  const amount = req ? req.amount : 0;
-  const amountText = (amount / 100).toFixed(2) + ' MXN';
-  const tracking = 'SIM-' + Date.now();
-  store.addTransaction(ctx.from.id, { type: 'payment', amount, desc: tracking });
-  if (req && req.requesterId) {
-    store.addTransaction(req.requesterId, { type: 'charge', amount, desc: tracking });
+
+  if (!req) {
+    return ctx.reply('Solicitud no encontrada.');
   }
-  const msg =
-    `✅ <b>Pago completado</b>\n` +
-    `Solicitud: <code>${rid}</code>\n` +
-    (amountText ? `Importe: ${amountText}\n` : '') +
-    `Rastreo: <code>${tracking}</code>`;
-  await ctx.editMessageText(msg, { parse_mode: 'HTML' });
-  if (req && req.requesterId) {
-    try {
-      await ctx.telegram.sendMessage(req.requesterId, msg, { parse_mode: 'HTML' });
-    } catch (_) {}
+
+  if (req.state === 'PAID') {
+    return ctx.reply('El pago ya está registrado.');
   }
+
+  const formBase = (
+    process.env.FORM_PUBLIC_URL ||
+    'https://pagos.kashbit.bond'
+  ).replace(/\/$/, '');
+
+  const url =
+    `${formBase}/pay/one-time?rid=${encodeURIComponent(rid)}`;
+
+  await ctx.editMessageText(
+    'Abre el formulario para completar el cargo en Openpay.',
+    {
+      ...Markup.inlineKeyboard([
+        [Markup.button.webApp('Pagar con Openpay', url)]
+      ])
+    }
+  );
 });
 
 bot.catch((err, ctx) => {

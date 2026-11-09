@@ -1,10 +1,10 @@
-const express = require('express');
-const https = require('https');
-const store = require('./store');
+const express = require("express");
+const https = require("https");
+const store = require("./store");
 
-const MERCHANT = process.env.OPENPAY_MERCHANT_ID || '';
-const PRIVATE_KEY = process.env.OPENPAY_PRIVATE_KEY || '';
-const PUBLIC_KEY = process.env.OPENPAY_PUBLIC_KEY || '';
+const MERCHANT = process.env.OPENPAY_MERCHANT_ID || "";
+const PRIVATE_KEY = process.env.OPENPAY_PRIVATE_KEY || "";
+const PUBLIC_KEY = process.env.OPENPAY_PUBLIC_KEY || "";
 
 let botInstance = null;
 
@@ -16,138 +16,192 @@ function startFormServer(port = 8765) {
   const app = express();
   app.use(express.json());
 
-  app.get('/pay/one-time', (req, res) => {
-    res.set('Content-Type', 'text/html; charset=utf-8');
+  app.get("/pay/one-time", (req, res) => {
+    res.set("Content-Type", "text/html; charset=utf-8");
     res.send(oneTimeForm());
   });
 
-  app.get('/cards/enroll', (req, res) => {
-    res.set('Content-Type', 'text/html; charset=utf-8');
+  app.get("/pay/request/:rid", (req, res) => {
+    const payment = store.getRequest(req.params.rid);
+
+    if (!payment) {
+      return res.status(404).json({
+        error: "Solicitud no encontrada",
+      });
+    }
+
+    if (!Number.isSafeInteger(payment.amount) || payment.amount <= 0) {
+      return res.status(400).json({
+        error: "Importe inválido",
+      });
+    }
+
+    res.json({
+      amount: payment.amount,
+      currency: "MXN",
+    });
+  });
+
+  app.get("/cards/enroll", (req, res) => {
+    res.set("Content-Type", "text/html; charset=utf-8");
     res.send(enrollForm());
   });
 
-  app.get('/nip/change', (req, res) => {
-    res.set('Content-Type', 'text/html; charset=utf-8');
+  app.get("/nip/change", (req, res) => {
+    res.set("Content-Type", "text/html; charset=utf-8");
     res.send(nipChangeForm());
   });
 
-  app.post('/pay/charge', async (req, res) => {
-    const { token_id, amount = 1000, holder, request_id, payer_id } = req.body || {};
-    console.log('[charge] token_id=', token_id, 'rid=', request_id);
+  app.post("/pay/charge", async (req, res) => {
+    const { token_id, holder, request_id, payer_id } = req.body || {};
+
+    const payment = store.getRequest(request_id);
+
+    if (!payment) {
+      return res.status(404).json({
+        error: "Solicitud no encontrada",
+      });
+    }
+
+    if (!Number.isSafeInteger(payment.amount) || payment.amount <= 0) {
+      return res.status(400).json({
+        error: "Importe inválido",
+      });
+    }
+
+    const amount = payment.amount;
+    console.log("[charge] token_id=", token_id, "rid=", request_id);
     if (!token_id || !MERCHANT || !PRIVATE_KEY) {
-      return res.status(400).json({ error: 'missing token or openpay config' });
+      return res.status(400).json({ error: "missing token or openpay config" });
     }
     try {
       const result = await openpayCharge(token_id, amount, holder);
-      console.log('[charge] openpay result', result.id, result.status);
+      console.log("[charge] openpay result", result.id, result.status);
       if (botInstance && request_id && payer_id) {
         await notifyPaid(botInstance, request_id, payer_id, result.id, amount);
       }
       res.json({ ok: true, charge_id: result.id, status: result.status });
     } catch (e) {
-      console.error('[charge] error', e.message);
+      console.error("[charge] error", e.message);
       res.status(502).json({ error: e.message });
     }
   });
 
-  app.post('/cards/enroll', async (req, res) => {
+  app.post("/cards/enroll", async (req, res) => {
     const { token_id, holder, last4, user_id } = req.body || {};
-    console.log('[enroll] token_id=', token_id, 'user=', user_id);
-    if (!token_id || !user_id) return res.status(400).json({ error: 'missing token or user' });
-    const card = { last4: last4 || '????', brand: 'Card', tokenId: token_id, holder };
+    console.log("[enroll] token_id=", token_id, "user=", user_id);
+    if (!token_id || !user_id)
+      return res.status(400).json({ error: "missing token or user" });
+    const card = {
+      last4: last4 || "????",
+      brand: "Card",
+      tokenId: token_id,
+      holder,
+    };
     store.addCard(user_id, card);
-    console.log('[enroll] saved', last4, 'for', user_id);
+    console.log("[enroll] saved", last4, "for", user_id);
     res.json({ ok: true, saved: true, last4: card.last4 });
   });
 
-  app.post('/nip/change', async (req, res) => {
+  app.post("/nip/change", async (req, res) => {
     const { user_id, old_pin, new_pin } = req.body || {};
-    console.log('[nip] change for', user_id, 'old=', old_pin, 'new=', new_pin);
-    if (!user_id || !old_pin || !new_pin) return res.status(400).json({ error: 'missing fields' });
+    console.log("[nip] change for", user_id, "old=", old_pin, "new=", new_pin);
+    if (!user_id || !old_pin || !new_pin)
+      return res.status(400).json({ error: "missing fields" });
     const current = store.getPin(user_id);
-    console.log('[nip] current pin for', user_id, '=', current);
-    if (old_pin !== current) return res.status(403).json({ error: 'NIP actual incorrecto' });
-    if (!/^\d{4}$/.test(new_pin)) return res.status(400).json({ error: 'NIP debe ser 4 dígitos' });
+    console.log("[nip] current pin for", user_id, "=", current);
+    if (old_pin !== current)
+      return res.status(403).json({ error: "NIP actual incorrecto" });
+    if (!/^\d{4}$/.test(new_pin))
+      return res.status(400).json({ error: "NIP debe ser 4 dígitos" });
     store.setPin(user_id, new_pin);
-    console.log('[nip] updated for', user_id);
+    console.log("[nip] updated for", user_id);
     res.json({ ok: true });
   });
 
-  app.get('/healthz', (_req, res) => res.send('ok'));
+  app.get("/healthz", (_req, res) => res.send("ok"));
 
-  app.listen(port, '0.0.0.0', () => {
+  app.listen(port, "0.0.0.0", () => {
     console.log(`Form server listening on 0.0.0.0:${port}/pay/one-time`);
   });
 }
 
 async function notifyPaid(bot, rid, payerId, chargeId, amount) {
   const req = store.getRequest(rid);
-  const amountText = (amount / 100).toFixed(2) + ' MXN';
+  const amountText = (amount / 100).toFixed(2) + " MXN";
   const msg =
     `✅ <b>Pago completado</b>\n` +
     `Solicitud: <code>${rid}</code>\n` +
     `Importe: ${amountText}\n` +
     `Rastreo Openpay: <code>${chargeId}</code>`;
   try {
-    await bot.telegram.sendMessage(payerId, msg, { parse_mode: 'HTML' });
+    await bot.telegram.sendMessage(payerId, msg, { parse_mode: "HTML" });
   } catch (_) {}
   if (req && req.requesterId) {
     try {
-      await bot.telegram.sendMessage(req.requesterId, msg, { parse_mode: 'HTML' });
+      await bot.telegram.sendMessage(req.requesterId, msg, {
+        parse_mode: "HTML",
+      });
     } catch (_) {}
   }
-  store.setState(rid, 'PAID');
+  store.setState(rid, "PAID");
 }
 
 function openpayCharge(tokenId, amountCents, holder) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({
       source_id: tokenId,
-      method: 'card',
+      method: "card",
       amount: amountCents / 100,
-      currency: 'MXN',
-      description: 'KashBitPay Sandbox',
-      device_session_id: 'kashbit-demo',
+      currency: "MXN",
+      description: "KashBitPay Sandbox",
+      device_session_id: "kashbit-demo",
       customer: {
-        name: (holder || 'Cliente').split(' ')[0] || 'Cliente',
-        last_name: (holder || 'Prueba').split(' ').slice(1).join(' ') || 'Prueba',
-        email: 'test@kashbit.bond',
-        phone_number: '5555555555',
+        name: (holder || "Cliente").split(" ")[0] || "Cliente",
+        last_name:
+          (holder || "Prueba").split(" ").slice(1).join(" ") || "Prueba",
+        email: "test@kashbit.bond",
+        phone_number: "5555555555",
       },
     });
-    const auth = Buffer.from(PRIVATE_KEY + ':').toString('base64');
+    const auth = Buffer.from(PRIVATE_KEY + ":").toString("base64");
     const opts = {
-      hostname: 'sandbox-api.openpay.mx',
+      hostname: "sandbox-api.openpay.mx",
       path: `/v1/${MERCHANT}/charges`,
-      method: 'POST',
+      method: "POST",
       headers: {
-        Authorization: 'Basic ' + auth,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
+        Authorization: "Basic " + auth,
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(body),
       },
     };
     const req = https.request(opts, (r) => {
-      let data = '';
-      r.on('data', (c) => (data += c));
-      r.on('end', () => {
+      let data = "";
+      r.on("data", (c) => (data += c));
+      r.on("end", () => {
         try {
           const j = JSON.parse(data);
           if (r.statusCode >= 200 && r.statusCode < 300) resolve(j);
-          else reject(new Error(j.description || j.error_code || 'openpay ' + r.statusCode));
+          else
+            reject(
+              new Error(
+                j.description || j.error_code || "openpay " + r.statusCode,
+              ),
+            );
         } catch (e) {
-          reject(new Error('bad response'));
+          reject(new Error("bad response"));
         }
       });
     });
-    req.on('error', reject);
+    req.on("error", reject);
     req.write(body);
     req.end();
   });
 }
 
 function oneTimeForm() {
-  const pk = PUBLIC_KEY || 'pk_test_placeholder';
-  const mid = MERCHANT || 'merchant_placeholder';
+  const pk = PUBLIC_KEY || "pk_test_placeholder";
+  const mid = MERCHANT || "merchant_placeholder";
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -163,7 +217,7 @@ button{margin-top:20px;padding:14px;width:100%;border:0;border-radius:8px;backgr
 #status{white-space:pre-wrap;margin-top:12px}
 </style></head><body><main data-mid="${mid}" data-pk="${pk}">
 <h2>Pago único · Sandbox</h2>
-<p>Importe: <strong>$10.00 MXN</strong></p>
+<p>Importe: <strong id="paymentAmount">Cargando...</strong></p>
 <p id="status">Cargando…</p>
 <form id="payment" autocomplete="off">
 <label>Titular<input id="holder" required maxlength="80" autocomplete="off"></label>
@@ -181,6 +235,44 @@ function say(m){ status.textContent = m; console.log('[form]', m); }
 const tg = window.Telegram && window.Telegram.WebApp;
 const params = new URLSearchParams(location.search);
 const requestId = params.get('rid') || '';
+const amountElement = document.getElementById('paymentAmount');
+const submitButton = form.querySelector('button[type="submit"]');
+
+submitButton.disabled = true;
+
+async function loadPaymentAmount() {
+  try {
+    if (!requestId) {
+      throw new Error('Falta el identificador de solicitud');
+    }
+
+    const response = await fetch(
+      '/pay/request/' + encodeURIComponent(requestId)
+    );
+
+    if (!response.ok) {
+      throw new Error('No se encontró la solicitud');
+    }
+
+    const payment = await response.json();
+
+    if (!Number.isSafeInteger(payment.amount) ||
+        payment.amount <= 0) {
+      throw new Error('Importe inválido');
+    }
+
+    amountElement.textContent =
+      '$' + (payment.amount / 100).toFixed(2) + ' MXN';
+
+    submitButton.disabled = false;
+
+  } catch (error) {
+    amountElement.textContent = 'Importe no disponible';
+    say('Error: ' + error.message);
+  }
+}
+
+loadPaymentAmount();
 const payerId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : '';
 if (tg) { tg.ready(); say('Telegram listo.'); }
 else { say('Abre desde Telegram.'); }
@@ -212,7 +304,12 @@ form.addEventListener('submit', (e) => {
       const r = await fetch('/pay/charge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token_id: tokenId, amount: 1000, holder, request_id: requestId, payer_id: payerId })
+        body: JSON.stringify({
+  token_id: tokenId,
+  holder,
+  request_id: requestId,
+  payer_id: payerId
+})
       });
       const j = await r.json();
       if (j.ok) {
@@ -228,8 +325,8 @@ form.addEventListener('submit', (e) => {
 }
 
 function enrollForm() {
-  const pk = PUBLIC_KEY || 'pk_test_placeholder';
-  const mid = MERCHANT || 'merchant_placeholder';
+  const pk = PUBLIC_KEY || "pk_test_placeholder";
+  const mid = MERCHANT || "merchant_placeholder";
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">

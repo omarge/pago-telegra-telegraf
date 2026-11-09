@@ -33,7 +33,7 @@ function newCardMenu(rid) {
       `Los datos se tokenizan en el formulario seguro.`,
     markup: Markup.inlineKeyboard([
       [Markup.button.webApp('Abrir formulario de pago', oneTime)],
-      [Markup.button.callback('Ya terminé – continuar', `menu:done:${rid}`)],
+      // [Markup.button.callback('Ya terminé – continuar', `menu:done:${rid}`)],
       [Markup.button.callback('← Menú', `menu:main:${rid}`)],
     ]),
   };
