@@ -88,19 +88,39 @@ function startFormServer(port = 8765) {
   });
 
   app.post("/cards/enroll", async (req, res) => {
-    const { token_id, holder, last4, user_id } = req.body || {};
-    console.log("[enroll] token_id=", token_id, "user=", user_id);
-    if (!token_id || !user_id)
-      return res.status(400).json({ error: "missing token or user" });
-    const card = {
-      last4: last4 || "????",
-      brand: "Card",
-      tokenId: token_id,
-      holder,
-    };
-    store.addCard(user_id, card);
-    console.log("[enroll] saved", last4, "for", user_id);
-    res.json({ ok: true, saved: true, last4: card.last4 });
+    const { token_id, holder, last4, user_id, email, device_session_id } = req.body || {};
+    if (!token_id || !user_id || !holder || !email || !device_session_id) {
+      return res.status(400).json({ error: "Faltan datos de enrolamiento Openpay" });
+    }
+    if (!MERCHANT || !PRIVATE_KEY) {
+      return res.status(503).json({ error: "Openpay no está configurado" });
+    }
+    try {
+      const names = holder.trim().split(/\s+/);
+      const customer = await openpayRequest("POST", "/customers", {
+        name: names.shift() || "Cliente",
+        last_name: names.join(" ") || "Cliente",
+        email,
+        requires_account: false
+      });
+      const card = await openpayRequest("POST", `/customers/${encodeURIComponent(customer.id)}/cards`, {
+        token_id,
+        device_session_id
+      });
+      if (!card.id || !customer.id) throw new Error("Openpay no devolvió identificadores de cliente/tarjeta");
+      store.addCard(user_id, {
+        last4: card.card_number || last4 || "????",
+        brand: card.brand || "Card",
+        openpayCardId: card.id,
+        openpayCustomerId: customer.id,
+        deviceSessionId: device_session_id,
+        holder
+      });
+      res.json({ ok: true, saved: true, last4: card.card_number || last4 });
+    } catch (e) {
+      console.error("[enroll] Openpay:", e.message);
+      res.status(502).json({ error: e.message });
+    }
   });
 
   app.post("/nip/change", async (req, res) => {
@@ -145,6 +165,53 @@ async function notifyPaid(bot, rid, payerId, chargeId, amount) {
     } catch (_) {}
   }
   store.setState(rid, "PAID");
+}
+
+function openpayRequest(method, resource, payload) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(payload);
+    const req = https.request({
+      hostname: "sandbox-api.openpay.mx",
+      path: `/v1/${MERCHANT}${resource}`,
+      method,
+      headers: {
+        Authorization: "Basic " + Buffer.from(PRIVATE_KEY + ":").toString("base64"),
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(body)
+      },
+      timeout: 25000
+    }, (res) => {
+      let response = "";
+      res.on("data", chunk => response += chunk);
+      res.on("end", () => {
+        let json;
+        try { json = JSON.parse(response); }
+        catch (_) { return reject(new Error("Openpay devolvió una respuesta no JSON (HTTP " + res.statusCode + ")")); }
+        if (res.statusCode >= 200 && res.statusCode < 300) resolve(json);
+        else reject(new Error("Openpay HTTP " + res.statusCode + ": " +
+          (json.description || json.error_code || json.message || "rechazado")));
+      });
+    });
+    req.on("timeout", () => req.destroy(new Error("Timeout de Openpay: resultado desconocido")));
+    req.on("error", reject);
+    req.end(body);
+  });
+}
+
+function chargeSavedCard({ customerId, cardId, amountCents, deviceSessionId, orderId }) {
+  if (!MERCHANT || !PRIVATE_KEY || !customerId || !cardId || !deviceSessionId ||
+      !Number.isSafeInteger(amountCents) || amountCents <= 0) {
+    return Promise.reject(new Error("Datos incompletos para cargo con tarjeta guardada"));
+  }
+  return openpayRequest("POST", `/customers/${encodeURIComponent(customerId)}/charges`, {
+    method: "card",
+    source_id: cardId,
+    amount: amountCents / 100,
+    currency: "MXN",
+    description: "KashBitPay Sandbox - tarjeta guardada",
+    order_id: orderId,
+    device_session_id: deviceSessionId
+  });
 }
 
 function openpayCharge(tokenId, amountCents, holder) {
@@ -333,6 +400,7 @@ function enrollForm() {
 <title>Guardar tarjeta · Sandbox</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://js.openpay.mx/openpay.v1.min.js"></script>
+<script src="https://js.openpay.mx/openpay-data.v1.min.js"></script>
 <style>
 body{font:16px system-ui;background:#f3f5f8;padding:16px;color:#183044}
 main{max-width:450px;margin:auto;background:white;padding:24px;border-radius:14px}
@@ -344,6 +412,7 @@ button{margin-top:20px;padding:14px;width:100%;border:0;border-radius:8px;backgr
 <p id="status">Cargando…</p>
 <form id="enroll" autocomplete="off">
 <label>Titular<input id="holder" required maxlength="80"></label>
+<label>Correo electrónico<input id="email" type="email" required maxlength="150"></label>
 <label>Número de tarjeta<input id="pan" required inputmode="numeric"></label>
 <label>Mes<input id="month" required inputmode="numeric" placeholder="MM" maxlength="2"></label>
 <label>Año<input id="year" required inputmode="numeric" placeholder="AA" maxlength="2"></label>
@@ -368,8 +437,11 @@ form.addEventListener('submit', (e) => {
   e.preventDefault();
   say('Tokenizando…');
   const holder = document.getElementById('holder').value;
+  const email = document.getElementById('email').value;
   const pan = document.getElementById('pan').value;
   const last4 = pan.slice(-4);
+  const deviceSessionId = window.OpenPay && OpenPay.deviceData ? OpenPay.deviceData.setup() : '';
+  if (!userId || !deviceSessionId) { say('Faltan datos de Telegram o sesión Openpay'); return; }
   const details = {
     holder_name: holder,
     card_number: pan,
@@ -386,7 +458,7 @@ form.addEventListener('submit', (e) => {
     const r = await fetch('/cards/enroll', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token_id: tokenId, holder, last4, user_id: userId })
+      body: JSON.stringify({ token_id: tokenId, holder, last4, user_id: userId, email, device_session_id: deviceSessionId })
     });
     const j = await r.json();
     if (j.ok) {
@@ -458,4 +530,4 @@ form.addEventListener('submit', async (e) => {
 </script></main></body></html>`;
 }
 
-module.exports = { startFormServer, setBot };
+module.exports = { startFormServer, setBot, chargeSavedCard };
