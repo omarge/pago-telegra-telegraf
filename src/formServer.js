@@ -109,14 +109,14 @@ function startFormServer(port = 8765) {
       });
       if (!card.id || !customer.id) throw new Error("Openpay no devolvió identificadores de cliente/tarjeta");
       store.addCard(user_id, {
-        last4: card.card_number || last4 || "????",
+        last4: String(card.card_number || last4 || "????").slice(-4),
         brand: card.brand || "Card",
         openpayCardId: card.id,
         openpayCustomerId: customer.id,
         deviceSessionId: device_session_id,
         holder
       });
-      res.json({ ok: true, saved: true, last4: card.card_number || last4 });
+      res.json({ ok: true, saved: true, last4: String(card.card_number || last4 || "????").slice(-4) });
     } catch (e) {
       console.error("[enroll] Openpay:", e.message);
       res.status(502).json({ error: e.message });
