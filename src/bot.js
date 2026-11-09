@@ -291,7 +291,8 @@ bot.action(/nip:(.+):(.+)/, async (ctx) => {
       chargesInFlight.add(rid);
       store.setState(rid, 'CHARGING');
       store.setPinEntry(rid, '');
-      await ctx.editMessageText('Procesando cargo en Openpay Sandbox...');
+      try { await ctx.editMessageText('Procesando cargo en Openpay Sandbox...'); }
+      catch (notifyError) { console.error('[saved-card] Telegram progress:', notifyError.message); }
       try {
         const charge = await chargeSavedCard({
           customerId: card.openpayCustomerId,
@@ -315,7 +316,8 @@ bot.action(/nip:(.+):(.+)/, async (ctx) => {
           `Solicitud: <code>${rid}</code>\n` +
           `Importe: ${amountText}\n` +
           `Rastreo Openpay: <code>${charge.id}</code>`;
-        await ctx.reply(msg, { parse_mode: 'HTML' });
+        try { await ctx.reply(msg, { parse_mode: 'HTML' }); }
+        catch (notifyError) { console.error('[saved-card] Telegram result:', notifyError.message); }
         if (req.requesterId) {
           try { await ctx.telegram.sendMessage(req.requesterId, msg, { parse_mode: 'HTML' }); }
           catch (_) {}
